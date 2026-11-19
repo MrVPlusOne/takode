@@ -1,5 +1,6 @@
 import { BrowserSocketSessionSwitches } from "./bridge/browser-socket-session-switches.js";
 import type { QuestStartedFrom } from "./quest-types.js";
+import { sideQuestNoteFor } from "./side-quest.js";
 import { notifySessionSavedForArtifacts } from "./artifact-library.js";
 import { noteSessionError, noteTurnEnded, type TurnEndOutcome } from "./scribe-registry.js";
 import type { ViewportHandoffSessionState } from "../shared/viewport-handoff.js";
@@ -1605,6 +1606,10 @@ export class WsBridge {
       options?.afterRejected?.("route_rejected");
       return "no_session";
     }
+    // Whatever reaches a leader in a side quest's thread (worker events, timers) says where
+    // the side quest's result goes, so the leader need not work it out from the rules.
+    const sideQuestNote = threadRoute ? this.sideQuestNote(sessionId, threadRoute.threadKey) : null;
+    if (sideQuestNote) content = `${content}\n\n${sideQuestNote}`;
     return deliverProgrammaticUserMessage(session, content, agentSource, takodeHerdBatch, threadRoute, options, {
       broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
       persistSession: (targetSession) => this.persistSession(targetSession),
@@ -1613,6 +1618,15 @@ export class WsBridge {
         this.pruneStaleBoardStalledHerdBatch(targetSession, batch),
       syncBackendTypeFromLauncher: (targetSession, reason) => this.syncBackendTypeFromLauncher(targetSession, reason),
     });
+  }
+
+  /** For a leader's side quest: where its result goes and whether it was posted (formatSideQuestNote). */
+  sideQuestNote(sessionId: string, questId: string): string | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    const key = questId.toLowerCase();
+    const row = session.board.get(key) ?? session.completedBoard.get(key);
+    return sideQuestNoteFor(session.messageHistory, session.id, key, row?.createdAt);
   }
 
   private isLiveBoardStalledEvent(session: Session, event: TakodeEvent): boolean {

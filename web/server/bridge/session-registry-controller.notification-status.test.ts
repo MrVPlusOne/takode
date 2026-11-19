@@ -1311,7 +1311,7 @@ describe("session notification status metadata", () => {
     expect(deps.scheduleNotification).not.toHaveBeenCalled();
   });
 
-  it("records nothing when a supporting quest completes, and keeps unread for quests that own their request", async () => {
+  it("records nothing when a side quest completes, and keeps unread for quests that own their request", async () => {
     // q-11 was filed from u7, which the user asked in q-10 and which stayed there:
     // the leader answers u7 in q-10, so q-11 finishing adds no second unread.
     // q-12 was filed from a Main request handed off to it, so it is the conversation.
@@ -1342,7 +1342,7 @@ describe("session notification status metadata", () => {
     ]);
   });
 
-  it("keeps the completion unread for a supporting quest the user wrote in", async () => {
+  it("keeps the completion unread for a side quest the user wrote in", async () => {
     // q-11 was filed from u7 in q-10, but the user then wrote in q-11's own tab: it became
     // a full quest, so its completion is unread like any other.
     const session = makeSession({

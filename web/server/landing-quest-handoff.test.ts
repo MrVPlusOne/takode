@@ -56,6 +56,7 @@ function harness(status: "MEMORY" | "LANDING" = "MEMORY") {
     rows.delete("q-1");
   });
   const commitLinks = vi.fn<LandingQuestHandoffDeps["commitLinks"]>(async () => []);
+  const sideQuestNote = vi.fn<NonNullable<LandingQuestHandoffDeps["sideQuestNote"]>>(() => null);
   const handoff = new LandingQuestHandoff({
     activeRows: () => [...rows.values()].map((row) => ({ leaderSessionId: "leader", row })),
     updateRow: (_leader, patch) => {
@@ -68,10 +69,12 @@ function harness(status: "MEMORY" | "LANDING" = "MEMORY") {
     completeQuest,
     notify: (session, text) => void messages.push({ session, text }),
     commitLinks,
+    sideQuestNote,
   });
   return {
     handoff,
     commitLinks,
+    sideQuestNote,
     rows,
     messages,
     recordDelivery,
@@ -133,6 +136,20 @@ describe("landing quest hand-off", () => {
       "Delivery d-1. Its commit links, to put in your answer:\n[change](quest:q-1:delivery:d-1:commit:abc)",
     );
     expect(text).not.toContain("quest commit-links");
+  });
+
+  it("says in the landed notice where a side quest's result goes", async () => {
+    // Leaders posted "it landed" in the side quest's own thread, which the user skips; the
+    // notice now tells them the thread where the user asked and the request to answer there.
+    const h = harness("LANDING");
+    h.row()!.landing!.completion = completion;
+    h.sideQuestNote.mockReturnValueOnce("q-1 is a side quest of q-9: when its result is ready, post it in q-9.");
+
+    expect(await h.handoff.entryResolved(h.setEntry({ ...landed, pushedTip: sha(201) }))).toBe(true);
+    expect(h.sideQuestNote).toHaveBeenCalledWith("leader", "q-1");
+    expect(h.messages.at(-1)!.text).toMatch(
+      /\nq-1 is a side quest of q-9: when its result is ready, post it in q-9\.$/,
+    );
   });
 
   it("records a change that landed before the hand-off as a delivery of the round's Work", async () => {

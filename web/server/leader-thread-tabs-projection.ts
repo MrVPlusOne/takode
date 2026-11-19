@@ -48,7 +48,7 @@ import type { BoardRow, BrowserIncomingMessage, SessionAttentionRecord } from ".
 import type { QuestStartedFrom } from "./quest-types.js";
 import { questSources } from "./quest-source-index.js";
 import { threadUserInteractionTimes } from "./thread-user-interaction.js";
-import { sideQuestSourceThreads } from "./supporting-quest.js";
+import { sideQuestSourceThreads } from "./side-quest.js";
 import {
   leaderMessageThreadKey,
   leaderResponseAssociatedThreadKeys,

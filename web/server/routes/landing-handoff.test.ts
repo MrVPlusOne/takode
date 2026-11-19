@@ -143,6 +143,8 @@ describe("landing hand-off through the real board routes", () => {
       broadcastGlobal: () => undefined,
       landingQueue: queue,
       injectUserMessage: (sessionId: string, text: string) => void messages.push({ session: sessionId, text }),
+      // The quest here is filed from no message, so it is no side quest.
+      sideQuestNote: () => null,
       // Stands in for the quest routes' completion step, which these tests do not mount.
       // Records the completion only once it is written, so a test that waits for `completed` then
       // reads the finished quest; recording it first let the store write lose that race under load.

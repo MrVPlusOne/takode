@@ -75,6 +75,11 @@ export interface QuestStartedFrom {
   threadKey: string;
   /** When the user sent the message. */
   timestamp: number;
+  /**
+   * Filed as its own conversation (`--own-thread`): one of several quests started from the
+   * message, or long work that needs its own discussion. Never a side quest.
+   */
+  ownThread?: boolean;
 }
 
 /** Derived read model combining explicit relationships and detected quest references. */

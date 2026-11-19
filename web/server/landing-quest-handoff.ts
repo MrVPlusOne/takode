@@ -33,6 +33,8 @@ export interface LandingQuestHandoffDeps {
   /** Complete the quest with final Memory's parked completion. */
   completeQuest(questId: string, completion: ParkedQuestCompletion, workerSessionId: string): Promise<void>;
   notify(sessionId: string, text: string): void;
+  /** For a leader's side quest: where its result goes (the leader may otherwise post it in the quest). */
+  sideQuestNote?(leaderSessionId: string, questId: string): string | null;
   /** The delivery's commit links, as `quest commit-links` prints them (none when it can't be read). */
   commitLinks(questId: string, deliveryId: string): Promise<string[]>;
 }
@@ -220,6 +222,7 @@ export class LandingQuestHandoff {
     // The links leaders paste into their answer come with the notice (they looked them up after
     // every landing); the command stays for a delivery whose links can't be read here.
     const links = await this.deps.commitLinks(questId, landing.deliveryId).catch(() => []);
+    const sideQuestNote = this.deps.sideQuestNote?.(match.leaderSessionId, questId);
     this.deps.notify(
       match.leaderSessionId,
       [
@@ -228,6 +231,7 @@ export class LandingQuestHandoff {
         ...(links.length
           ? [`Delivery ${landing.deliveryId}. Its commit links, to put in your answer:`, ...links]
           : [`Delivery ${landing.deliveryId}: \`quest commit-links ${questId} --delivery ${landing.deliveryId}\``]),
+        ...(sideQuestNote ? [sideQuestNote] : []),
       ].join("\n"),
     );
   }

@@ -16,7 +16,11 @@ export class QuestSourceIndex {
       const source = quest.relationships?.startedFrom;
       const questId = quest.questId.toLowerCase();
       const known = this.sources.get(questId);
-      if (!source || (known?.sessionId === source.sessionId && known.messageId === source.messageId)) continue;
+      const same =
+        known?.sessionId === source?.sessionId &&
+        known?.messageId === source?.messageId &&
+        !!known?.ownThread === !!source?.ownThread;
+      if (!source || same) continue;
       this.sources.set(questId, source);
       changed = true;
     }

@@ -6,7 +6,7 @@ import {
   setThreadMonitoring,
 } from "../thread-monitoring.js";
 import { getQuest } from "../quest-store.js";
-import { findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
+import { findSideQuestSource, indexLeaderRequests } from "../side-quest.js";
 import type { RouteContext } from "./context.js";
 
 /** Browser-owned monitoring commands and a bounded global list, independent of tab visibility. */
@@ -92,7 +92,7 @@ export function registerThreadMonitoringRoutes(api: Hono, ctx: RouteContext): vo
     // so tracking it waits for a new result instead of surfacing that one in its own tab.
     const sideQuest =
       body.action === "track" &&
-      !!findSupportingQuestSource(
+      !!findSideQuestSource(
         indexLeaderRequests(session.messageHistory),
         session.id,
         threadKey,

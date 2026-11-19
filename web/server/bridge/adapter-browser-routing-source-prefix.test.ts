@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { setTopicViewSource } from "../topic-views.js";
 import { rememberThreadNumbers, resetThreadNumbersForTest } from "../../shared/topic-thread-key.js";
-import { buildAdapterUserMessageSourcePrefix } from "./adapter-browser-routing-source-prefix.js";
+import {
+  buildAdapterUserMessageSourcePrefix,
+  buildUserMessageDeliveryPrefix,
+} from "./adapter-browser-routing-source-prefix.js";
+import { questSources } from "../quest-source-index.js";
 
 /**
  * A message the user writes in a topic conversation is stored in the topic's own thread and reaches
@@ -136,5 +140,48 @@ describe("user message source tag", () => {
     expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "main", "u9")).toMatch(
       /\[User .* id:u9\] \[thread:main\] $/,
     );
+  });
+});
+
+describe("a user message that ends a side quest", () => {
+  // q-31 is a side quest filed from u1, asked in q-30's thread.
+  questSources.record([
+    {
+      questId: "q-31",
+      relationships: { startedFrom: { sessionId: "leader", messageId: "raw-u1", threadKey: "q-30", timestamp: 10 } },
+    },
+  ]);
+  const userMessage = (id: string, uN: string, threadKey: string) =>
+    ({
+      type: "user_message",
+      id,
+      leaderUserMessageId: uN,
+      content: "text",
+      timestamp: 10,
+      threadKey,
+      questId: threadKey,
+      leaderResponseCoverageVersion: 1,
+    }) as const;
+  const deps = { getLauncherSessionInfo: () => ({ isOrchestrator: true }) as never };
+  const deliver = (history: ReturnType<typeof userMessage>[], entry: ReturnType<typeof userMessage>) =>
+    buildUserMessageDeliveryPrefix(
+      { id: "leader", messageHistory: history } as never,
+      { timestamp: 20, historyEntry: entry } as never,
+      { type: "user_message", content: "text" } as never,
+      "text",
+      deps,
+    );
+
+  it("tells the leader the side quest is an ordinary quest now, with the message that made it one", () => {
+    const ask = userMessage("raw-u1", "u1", "q-30");
+    const inTab = userMessage("raw-u2", "u2", "q-31");
+    expect(deliver([ask, inTab], inTab)).toContain(
+      "[q-31 was a side quest of q-30 until this message: it is an ordinary quest now, so answer here and post its results here]",
+    );
+    // Later messages in its tab, and messages in the asking thread, carry no such tag.
+    const again = userMessage("raw-u3", "u3", "q-31");
+    expect(deliver([ask, inTab, again], again)).not.toContain("side quest");
+    const elsewhere = userMessage("raw-u4", "u4", "q-30");
+    expect(deliver([ask, elsewhere], elsewhere)).not.toContain("side quest");
   });
 });

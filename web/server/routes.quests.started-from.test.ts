@@ -143,4 +143,49 @@ describe("quests filed from a user's message", () => {
       ],
     });
   });
+
+  it("files a quest as its own conversation, at filing or later, and says so", async () => {
+    // `--own-thread`: long work or one of several quests from a message. It is never a side quest.
+    const create = vi.spyOn(questStore, "createQuest").mockResolvedValue(QUEST as QuestmasterTask);
+    await send(makeApp(), "POST", "/api/quests", { title: "Batch", startedFromUserMessageId: "u2", ownThread: true });
+    expect(create.mock.calls[0]![0].relationships).toEqual({
+      startedFrom: { sessionId: "leader-1", messageId: "msg-b", threadKey: "q-7", timestamp: 200, ownThread: true },
+    });
+
+    // Later, `quest edit q-9 --own-thread` alone marks the source the quest already has.
+    const fromQ7 = { sessionId: "leader-1", messageId: "msg-b", threadKey: "q-7", timestamp: 200 };
+    vi.spyOn(questStore, "getQuest").mockResolvedValue({ ...QUEST, relationships: { startedFrom: fromQ7 } } as never);
+    const patch = vi.spyOn(questStore, "patchQuest").mockResolvedValue(QUEST as QuestmasterTask);
+    expect((await send(makeApp(), "PATCH", "/api/quests/q-9", { ownThread: true })).status).toBe(200);
+    expect(patch.mock.calls[0]![1]).toEqual({ relationships: { startedFrom: { ...fromQ7, ownThread: true } } });
+  });
+
+  it("refuses --own-thread for a quest filed from no message", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValue(QUEST as never);
+    const patch = vi.spyOn(questStore, "patchQuest");
+    const response = await send(makeApp(), "PATCH", "/api/quests/q-9", { ownThread: true });
+    expect(response.status).toBe(400);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("tells the leader what a quest filed from its message is: a side quest, or its own conversation", async () => {
+    // This is what `quest create --source-message` prints, so the leader knows where its result goes.
+    const fromQ7 = { sessionId: "leader-1", messageId: "msg-b", threadKey: "q-7", timestamp: 200 };
+    questSources.record([{ questId: "q-91", relationships: { startedFrom: fromQ7 } }]);
+    vi.spyOn(questStore, "getQuest").mockImplementation(async (id) =>
+      id === "q-91"
+        ? ({ ...QUEST, questId: "q-91", relationships: { startedFrom: fromQ7 } } as never)
+        : ({ ...QUEST, questId: "q-92", relationships: { startedFrom: { ...fromQ7, ownThread: true } } } as never),
+    );
+    const side = await (await makeApp().request("/api/sessions/leader-1/started-quests/q-91/kind")).json();
+    expect(side).toEqual({
+      sideQuest: true,
+      note: "q-91 is a side quest of q-7: when its result is ready, post it in q-7 as an answer to u2. q-7 waits for it until then.",
+    });
+    const own = await (await makeApp().request("/api/sessions/leader-1/started-quests/q-92/kind")).json();
+    expect(own).toEqual({
+      sideQuest: false,
+      note: "q-92 is its own conversation: answer and post its results in its thread.",
+    });
+  });
 });

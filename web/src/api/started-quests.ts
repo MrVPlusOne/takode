@@ -9,8 +9,8 @@ export interface StartedQuest {
   sideQuest: boolean;
 }
 
-/** The leader's answer that delivered a supporting quest's result. */
-export interface SupportingQuestAnswer {
+/** The leader's answer that delivered a side quest's result. */
+export interface SideQuestAnswer {
   messageId: string;
   /** The thread the answer was written in. */
   threadKey: string;
@@ -42,14 +42,14 @@ export function onStartedQuestsChanged(listener: (sessionId: string) => void): (
   return () => changeListeners.delete(listener);
 }
 
-/** For a supporting quest, the leader's answer that delivered its result, if one was written. */
-export async function fetchSupportingQuestAnswer(
+/** For a side quest, the leader's answer that delivered its result, if one was written. */
+export async function fetchSideQuestAnswer(
   sessionId: string,
   questId: string,
   signal?: AbortSignal,
-): Promise<SupportingQuestAnswer | null> {
+): Promise<SideQuestAnswer | null> {
   const path = `/api/sessions/${encodeURIComponent(sessionId)}/started-quests/${encodeURIComponent(questId)}/answer`;
   const res = await fetch(path, { signal });
-  if (!res.ok) throw new Error(`supporting quest answer: ${res.status}`);
-  return ((await res.json()) as { answer: SupportingQuestAnswer | null }).answer;
+  if (!res.ok) throw new Error(`side quest answer: ${res.status}`);
+  return ((await res.json()) as { answer: SideQuestAnswer | null }).answer;
 }

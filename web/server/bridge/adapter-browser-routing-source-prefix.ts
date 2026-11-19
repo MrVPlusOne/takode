@@ -7,6 +7,7 @@ import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from
 import type { BrowserUserMessage, IngestedUserMessage } from "./adapter-browser-routing-message-types.js";
 import { isSystemSourceTag, isTimerReminderContent, isTimerSourceTag } from "./adapter-browser-routing-source-tags.js";
 import { formatCompactAgentLabel } from "../../shared/takode-constants.js";
+import { sideQuestEndedBy } from "../side-quest.js";
 import { isTimerReminderFiring, timerReminderMatchesSource } from "./adapter-browser-routing-timer.js";
 
 function localDateKey(ts: number): string {
@@ -76,7 +77,7 @@ export function buildUserMessageDeliveryPrefix(
   // Held firings keep their delivered content, which already starts with the
   // envelope; a reminder's own text starts with "[⏰ Timer", never "[Timer ".
   if (isTimerReminderFiring(msg) && msg.deliveryContent?.startsWith("[Timer ")) return "";
-  return buildAdapterUserMessageSourcePrefix(
+  const prefix = buildAdapterUserMessageSourcePrefix(
     session,
     ingested.timestamp,
     deps.getLauncherSessionInfo,
@@ -85,6 +86,21 @@ export function buildUserMessageDeliveryPrefix(
     ingested.historyEntry.threadKey,
     ingested.historyEntry.leaderUserMessageId,
   );
+  return msg.agentSource ? prefix : prefix + sideQuestEndedTag(session, ingested.historyEntry);
+}
+
+/**
+ * The user writing in a side quest's thread (a message, a comment, an answer to a question asked
+ * there) makes it an ordinary quest. The leader is told with that message, not left to infer it.
+ */
+function sideQuestEndedTag(
+  session: AdapterBrowserRoutingSessionLike,
+  message: IngestedUserMessage["historyEntry"],
+): string {
+  const ended = sideQuestEndedBy(session.messageHistory, session.id, message);
+  if (!ended) return "";
+  const asked = threadAddress(ended.source.threadKey);
+  return `[${ended.questId} was a side quest of ${asked} until this message: it is an ordinary quest now, so answer here and post its results here] `;
 }
 
 /**

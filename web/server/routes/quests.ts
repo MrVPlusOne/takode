@@ -35,7 +35,7 @@ import {
 } from "../bridge/session-registry-controller.js";
 import { broadcastQuestUpdate, buildQuestTitlePreview, recordQuestSource } from "./quest-helpers.js";
 import { unfinishedRoundMessage } from "./quest-reopen-guard.js";
-import { registerStartedQuestsRoute, resolveQuestStartedFrom } from "./quest-started-from.js";
+import { registerStartedQuestsRoute, requestedQuestStartedFrom, type QuestSourceInput } from "./quest-started-from.js";
 import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { sessionMachineName } from "../remote-host/machines.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
@@ -1170,12 +1170,11 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.post("/quests", async (c) => {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;
-    const { startedFromUserMessageId, ...body } = (await c.req.json().catch(() => ({}))) as QuestCreateInput & {
-      lastModifiedBy?: unknown;
-      ownerKind?: unknown;
-      startedFromUserMessageId?: unknown;
-    };
-    const source = resolveQuestStartedFrom(auth, startedFromUserMessageId, questSourceHistory);
+    const { startedFromUserMessageId, ownThread, ...body } = (await c.req
+      .json()
+      .catch(() => ({}))) as QuestCreateInput & QuestSourceInput & { lastModifiedBy?: unknown; ownerKind?: unknown };
+    const sourceInput = { startedFromUserMessageId, ownThread };
+    const source = await requestedQuestStartedFrom(auth, sourceInput, questSourceHistory, async () => undefined);
     if (source && "error" in source) return c.json({ error: source.error }, 400);
     if (source) body.relationships = { ...body.relationships, startedFrom: source.startedFrom };
     try {
@@ -1200,14 +1199,11 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.patch("/quests/:questId", async (c) => {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;
-    const { startedFromUserMessageId, ...body } = (await c.req.json().catch(() => ({}))) as QuestPatchInput & {
-      createdBy?: unknown;
-      debrief?: unknown;
-      debriefTldr?: unknown;
-      ownerKind?: unknown;
-      startedFromUserMessageId?: unknown;
-    };
-    const source = resolveQuestStartedFrom(auth, startedFromUserMessageId, questSourceHistory);
+    const { startedFromUserMessageId, ownThread, ...body } = (await c.req.json().catch(() => ({}))) as QuestPatchInput &
+      QuestSourceInput & { createdBy?: unknown; debrief?: unknown; debriefTldr?: unknown; ownerKind?: unknown };
+    const current = async () => (await questStore.getQuest(c.req.param("questId")))?.relationships?.startedFrom;
+    const sourceInput = { startedFromUserMessageId, ownThread };
+    const source = await requestedQuestStartedFrom(auth, sourceInput, questSourceHistory, current);
     if (source && "error" in source) return c.json({ error: source.error }, 400);
     if (source) body.relationships = { ...body.relationships, startedFrom: source.startedFrom };
     try {

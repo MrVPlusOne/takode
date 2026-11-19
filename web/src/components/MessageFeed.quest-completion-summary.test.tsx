@@ -427,7 +427,7 @@ describe("MessageFeed quest completion summary", () => {
     expect(screen.queryByRole("button", { name: "Show full debrief" })).not.toBeInTheDocument();
   });
 
-  it("leads a supporting quest's card with the answer given where the user asked", async () => {
+  it("leads a side quest's card with the answer given where the user asked", async () => {
     // The quest was filed from a request the user asked in q-77, and the leader answered
     // it there. The server returns that answer; the card shows it, links to it, and keeps
     // the debrief behind the toggle.

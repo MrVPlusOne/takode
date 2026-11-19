@@ -135,7 +135,7 @@ describe("GET /sessions/:id/started-quests", () => {
     expect(quests[2]).toMatchObject({ startedFrom: { threadKey: "main" }, sideQuest: false });
   });
 
-  it("returns the answer that delivered a supporting quest's result", async () => {
+  it("returns the answer that delivered a side quest's result", async () => {
     // u3 was asked in q-10 and stayed there; q-11 was filed from it, and the leader
     // answered u3 in q-10 in the turn the worker's herd event started.
     const leaderHistory = [
@@ -159,7 +159,7 @@ describe("GET /sessions/:id/started-quests", () => {
         threadAnswer: { version: 2, answerUserMessageIds: ["u3"], observedHistoryLength: 1, authoredThreadKey: "q-10" },
       },
     ] as unknown as BrowserIncomingMessage[];
-    const supportingQuest = {
+    const sideQuest = {
       questId: "q-11",
       title: "Condor check",
       createdAt: 1500,
@@ -168,8 +168,8 @@ describe("GET /sessions/:id/started-quests", () => {
     const api = new Hono();
     registerStartedQuestsRoute(api, {
       resolveId: (id) => id,
-      listQuests: async () => [supportingQuest],
-      getQuest: async (questId) => (questId === "q-11" ? supportingQuest : null),
+      listQuests: async () => [sideQuest],
+      getQuest: async (questId) => (questId === "q-11" ? sideQuest : null),
       getHistory: () => leaderHistory,
     });
 

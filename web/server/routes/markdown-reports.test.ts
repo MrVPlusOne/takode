@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createMarkdownReportRoutes } from "./markdown-reports.js";
+import { questSources } from "../quest-source-index.js";
 import type { RouteContext } from "./context.js";
 import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
 import { SessionStore, type PersistedSession } from "../session-store.js";
@@ -224,6 +225,33 @@ describe("Markdown report publication and human comments", () => {
     await h.post("/takode/reports", body, true);
     expect(h.host.messageHistory).toHaveLength(2);
     expect(h.host.notifications).toHaveLength(1);
+  });
+
+  it("publishes a leader's report for a side quest in the thread where the user asked", async () => {
+    // q-77 is a side quest filed from the user's request in q-42; its report belongs with that
+    // request, so the side quest's own tab stays quiet and the receipt names where it went.
+    questSources.record([
+      {
+        questId: "q-77",
+        relationships: { startedFrom: { sessionId: "report-host", messageId: "ask", threadKey: "q-42", timestamp: 1 } },
+      },
+    ]);
+    const h = harness();
+    h.host.messageHistory.push({
+      type: "user_message",
+      id: "ask",
+      content: "Compare the runs",
+      timestamp: 1,
+      leaderUserMessageId: "u1",
+      leaderResponseCoverageVersion: 1,
+      threadKey: "q-42",
+      questId: "q-42",
+    });
+    const body = { content: "# Comparison", sourcePath: "/report.md", threadKey: "q-77" };
+    const response = await h.post("/takode/reports", body, true);
+    expect((await response.json()).threadKey).toBe("q-42");
+    expect(h.host.messageHistory.at(-1)).toMatchObject({ type: "markdown_report", threadKey: "q-42" });
+    expect(h.host.notifications).toEqual([expect.objectContaining({ unreadReason: "report", threadKey: "q-42" })]);
   });
 
   it("delivers a report comment as ordinary composer input that names the report to read", () => {

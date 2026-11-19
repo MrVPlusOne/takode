@@ -8,7 +8,7 @@ import { normalizeHistoryMessageToChatMessages } from "../../utils/history-messa
 import { buildFeedSections } from "../message-feed-sections.js";
 import { MessageFeedCenteredState } from "../MessageFeedCenteredState.js";
 import { TurnEntries } from "../MessageFeedTurns.js";
-import { SupportingQuestAnswerContext } from "../QuestCompletionSummaryCard.js";
+import { SideQuestAnswerContext } from "../QuestCompletionSummaryCard.js";
 import { markQuestForkNew, StartedQuestsContext } from "../QuestForkLinks.js";
 import { Card, Section } from "./shared.js";
 
@@ -16,8 +16,8 @@ const SESSION_ID = "playground-quest-summary-cards";
 const QUEST_ID = "q-9008";
 const DESCRIPTION_QUEST_ID = "q-9021";
 const EXCERPT_QUEST_ID = "q-9022";
-const SUPPORTING_RUNNING_ID = "q-9024";
-const SUPPORTING_DONE_ID = "q-9025";
+const SIDE_QUEST_RUNNING_ID = "q-9024";
+const SIDE_QUEST_DONE_ID = "q-9025";
 const EMPTY_IDS = new Set<string>();
 const NOOP = () => {};
 
@@ -195,9 +195,9 @@ export function PlaygroundQuestCompletionSummary() {
             },
           ],
         })
-        .set(SUPPORTING_DONE_ID, {
-          id: "playground-completion-summary-supporting",
-          questId: SUPPORTING_DONE_ID,
+        .set(SIDE_QUEST_DONE_ID, {
+          id: "playground-completion-summary-side-quest",
+          questId: SIDE_QUEST_DONE_ID,
           version: 1,
           title: "QA eval trend numbers from Condor",
           description: "Read-only: QA eval trend numbers from Condor, to compare with the laptop worker's check.",
@@ -208,7 +208,7 @@ export function PlaygroundQuestCompletionSummary() {
           verificationItems: [],
           debriefTldr:
             "- Condor rollouts confirm Frank's chart is the 77B T3 run; exec dips slightly, seeded QA rises.",
-          relationships: { startedFrom: SUPPORTING_STARTED_FROM },
+          relationships: { startedFrom: SIDE_QUEST_STARTED_FROM },
         }),
       questTitlePreviews: new Map(state.questTitlePreviews).set(EXCERPT_QUEST_ID, {
         questId: EXCERPT_QUEST_ID,
@@ -245,14 +245,14 @@ export function PlaygroundQuestCompletionSummary() {
             testId="playground-completion-summary-later"
           />
         </Card>
-        <Card label="Supporting quest · leads with the answer given where the user asked">
-          <SupportingQuestAnswerContext.Provider value={SUPPORTING_ANSWERS}>
+        <Card label="Side quest · leads with the answer given where the user asked">
+          <SideQuestAnswerContext.Provider value={SIDE_QUEST_ANSWERS}>
             <QuestThread
-              questId={SUPPORTING_DONE_ID}
-              history={dispatchHistory(SUPPORTING_DONE_ID)}
-              testId="playground-completion-summary-supporting"
+              questId={SIDE_QUEST_DONE_ID}
+              history={dispatchHistory(SIDE_QUEST_DONE_ID)}
+              testId="playground-completion-summary-side-quest"
             />
-          </SupportingQuestAnswerContext.Provider>
+          </SideQuestAnswerContext.Provider>
         </Card>
       </div>
     </Section>
@@ -280,42 +280,42 @@ const STARTED_QUESTS = new Map([
   ],
 ]);
 
-/** One request in the excerpt quest's thread that two supporting quests help answer there. */
-const SUPPORTING_STARTED_FROM = {
+/** One request in the excerpt quest's thread that two side quests help answer there. */
+const SIDE_QUEST_STARTED_FROM = {
   sessionId: SESSION_ID,
   messageId: `${EXCERPT_QUEST_ID}-compare`,
   threadKey: EXCERPT_QUEST_ID,
   timestamp: messageTimestamp(3),
 };
-const SUPPORTING_QUESTS = new Map([
+const SIDE_QUEST_QUESTS = new Map([
   [
-    SUPPORTING_STARTED_FROM.messageId,
+    SIDE_QUEST_STARTED_FROM.messageId,
     [
       {
-        questId: SUPPORTING_RUNNING_ID,
+        questId: SIDE_QUEST_RUNNING_ID,
         title: "QA eval trend numbers from the laptop",
-        startedFrom: SUPPORTING_STARTED_FROM,
+        startedFrom: SIDE_QUEST_STARTED_FROM,
         sideQuest: true,
       },
       {
-        questId: SUPPORTING_DONE_ID,
+        questId: SIDE_QUEST_DONE_ID,
         title: "QA eval trend numbers from Condor",
-        startedFrom: SUPPORTING_STARTED_FROM,
+        startedFrom: SIDE_QUEST_STARTED_FROM,
         sideQuest: true,
       },
       // Filed as a side quest, but the user then wrote in its tab, so the conversation continues there.
       {
         questId: "q-9026",
         title: "Compare the eval prompts across runs",
-        startedFrom: SUPPORTING_STARTED_FROM,
+        startedFrom: SIDE_QUEST_STARTED_FROM,
         sideQuest: false,
       },
     ],
   ],
 ]);
-const SUPPORTING_ANSWERS = new Map([
+const SIDE_QUEST_ANSWERS = new Map([
   [
-    SUPPORTING_DONE_ID,
+    SIDE_QUEST_DONE_ID,
     {
       messageId: `${EXCERPT_QUEST_ID}-combined-answer`,
       threadKey: EXCERPT_QUEST_ID,
@@ -397,14 +397,14 @@ export function PlaygroundQuestDescriptionSummary() {
           <ForkCueDemo />
         </Card>
         <Card label="Side quests under the request · each opens its thread; one the user wrote in reads Continued in">
-          <StartedQuestsContext.Provider value={SUPPORTING_QUESTS}>
+          <StartedQuestsContext.Provider value={SIDE_QUEST_QUESTS}>
             <QuestThread
               questId={EXCERPT_QUEST_ID}
               history={[
                 message(
                   EXCERPT_QUEST_ID,
                   "human",
-                  SUPPORTING_STARTED_FROM.messageId,
+                  SIDE_QUEST_STARTED_FROM.messageId,
                   "Check this on both the laptop and Condor, then compare.",
                   3,
                 ),
@@ -416,7 +416,7 @@ export function PlaygroundQuestDescriptionSummary() {
                   4,
                 ),
               ]}
-              testId="playground-supporting-quest-rows"
+              testId="playground-side-quest-rows"
               onSelectThread={NOOP}
             />
           </StartedQuestsContext.Provider>

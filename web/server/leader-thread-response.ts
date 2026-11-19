@@ -20,6 +20,7 @@ import {
   type LeaderUserMessageIdentity,
 } from "./leader-user-message-id.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
+import { sideQuestOf } from "./side-quest.js";
 import type {
   BrowserIncomingMessage,
   LeaderThreadAnswerMetadata,
@@ -1066,23 +1067,23 @@ export function finalizeRoutedLeaderResponseMessage(
   ) {
     return rejectAnswerRoute(message, "stale", { resultReason: "unproven_observation" });
   }
-  const selectedThreadKey = exactResponseThreadKey(message);
+  const routedThreadKey = exactResponseThreadKey(message);
   const markdown = responseMessageMarkdown(message);
   const messageId = responseMessageId(message);
   const historyIndex = session.messageHistory.indexOf(message);
   const answerUserMessageIds = message.leaderAnswerUserMessageIds;
-  if (!selectedThreadKey) {
+  if (!routedThreadKey) {
     return rejectAnswerRoute(message, "route_control_conflict");
   }
   if (hasThreadControlDirectives(markdown)) {
-    return rejectAnswerRoute(message, "route_control_conflict", { selectedThreadKey });
+    return rejectAnswerRoute(message, "route_control_conflict", { selectedThreadKey: routedThreadKey });
   }
   if (
     !Array.isArray(answerUserMessageIds) ||
     answerUserMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id)) ||
     new Set(answerUserMessageIds).size !== answerUserMessageIds.length
   ) {
-    return rejectAnswerRoute(message, "invalid_ids", { selectedThreadKey });
+    return rejectAnswerRoute(message, "invalid_ids", { selectedThreadKey: routedThreadKey });
   }
   if (
     !messageId ||
@@ -1094,7 +1095,7 @@ export function finalizeRoutedLeaderResponseMessage(
     otherStoredAnswerUsesMessageId(session, message, messageId)
   ) {
     return rejectAnswerRoute(message, "invalid_answer", {
-      selectedThreadKey,
+      selectedThreadKey: routedThreadKey,
       answerUserMessageIds,
     });
   }
@@ -1107,20 +1108,24 @@ export function finalizeRoutedLeaderResponseMessage(
   );
   if (!resolution.ok) {
     return rejectAnswerRoute(message, resolution.reason, {
-      selectedThreadKey,
+      selectedThreadKey: routedThreadKey,
       answerUserMessageIds,
       ownerGroups: resolution.ownerGroups,
     });
   }
 
   const ownerGroups = resolution.ownerGroups;
-  if (hasConflictingAuthoritativeAnswerRefs(message, selectedThreadKey)) {
+  if (hasConflictingAuthoritativeAnswerRefs(message, routedThreadKey)) {
     return rejectAnswerRoute(message, "route_control_conflict", {
-      selectedThreadKey,
+      selectedThreadKey: routedThreadKey,
       answerUserMessageIds,
       ownerGroups,
     });
   }
+  // A side quest's results belong where the user asked: an answer written in its thread is
+  // the asking thread's (unread there), so the leader writing in it never makes it ordinary.
+  const selectedThreadKey =
+    sideQuestOf(session.messageHistory, session.id, routedThreadKey)?.threadKey ?? routedThreadKey;
   const visibleThreadKeys = [
     ...new Set([selectedThreadKey, ...resolution.referenced.flatMap((entry) => entry.associatedThreadKeys)]),
   ];

@@ -49,4 +49,8 @@ export async function handleReport(base: string, args: string[]): Promise<void> 
       ? JSON.stringify(receipt)
       : `Published report ${receipt.reportId} to ${receipt.threadKey} (${receipt.bytes} bytes). SHA-256 ${receipt.sha256}`,
   );
+  // Takode publishes a side quest's report in the thread where the user asked (see sideQuestOf).
+  if (!json && receipt.threadKey !== threadKey.trim().toLowerCase()) {
+    console.log(`${threadKey} is a side quest of ${receipt.threadKey}, so its report went there.`);
+  }
 }

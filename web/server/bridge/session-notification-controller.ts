@@ -39,7 +39,7 @@ import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
 import { markdownToPlainText } from "../../shared/markdown-plain-text.js";
 import { needsInputContextMessageId } from "../../shared/notification-link.js";
 import type { QuestStartedFrom } from "../quest-types.js";
-import { findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
+import { findSideQuestSource, indexLeaderRequests } from "../side-quest.js";
 import { topicThreadLabel } from "../topic-views.js";
 
 type SessionLike = any;
@@ -130,7 +130,7 @@ type LeaderUnreadDeps = PersistNotificationDeps & {
     detail: string,
     options: { notificationId: string; threadKey: string; messageId: string; isStillOpen: () => boolean },
   ) => void;
-  /** The message a quest was filed from, to recognize supporting quests. */
+  /** The message a quest was filed from, to recognize side quests. */
   resolveQuestStartedFrom?: (questId: string) => Promise<QuestStartedFrom | null>;
 };
 
@@ -696,7 +696,7 @@ export function recordAnswerUnreadNotifications(
  * Make a completed quest's leader thread unread. The thread's Quest complete card
  * shows the result, so this does not depend on the leader writing an answer, which
  * it cannot do for work another leader handed over. Recompleting a quest counts again.
- * A supporting quest (see findSupportingQuestSource) adds nothing: its result reaches
+ * A side quest (see findSideQuestSource) adds nothing: its result reaches
  * the user as the leader's answer to the request, which stays pending until answered.
  */
 export async function recordQuestCompletionUnreadNotification(
@@ -707,7 +707,7 @@ export async function recordQuestCompletionUnreadNotification(
   // Without a resolver nothing is awaited, so the unread is recorded synchronously.
   const startedFrom = deps.resolveQuestStartedFrom ? await deps.resolveQuestStartedFrom(completion.questId) : null;
   const requests = startedFrom ? indexLeaderRequests(session.messageHistory ?? []) : null;
-  if (requests && findSupportingQuestSource(requests, session.id, completion.questId, startedFrom ?? undefined)) {
+  if (requests && findSideQuestSource(requests, session.id, completion.questId, startedFrom ?? undefined)) {
     return false;
   }
   const threadKey = normalizeLeaderThreadKey(completion.questId);

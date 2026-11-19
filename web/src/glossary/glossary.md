@@ -16,6 +16,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 - **Home**: where a leader opens. It lists the leader's threads by when you last dealt with them, questions pinned on top, each with a line of news. Type there to start a new thread.
 - **Thread**: one conversation with a leader about one subject, addressed as t-1, t-2 and so on. Threads never need closing.
 - **Quest thread**: a thread whose request became a quest, so the conversation and the work stay together. Usually one quest per thread.
+- **Side quest**: a quick quest a leader files to help answer something you asked in a thread. Its result comes back as an answer in that thread, which waits for it, so you need not open the side quest; writing in the side quest's own thread makes it an ordinary quest.
 - **Topic**: a broad area of work. The Scribe files threads and quests under topics; a topic's page in the Library says where the area stands.
 - **Answer and commentary**: answers are what the leader writes for you and make a thread unread. Commentary is its working notes, folded into the turn's activity once the leader moves on.
 - **Question card**: how a session asks you to decide something, with suggested replies to tap. Its explanation is the message just above it.

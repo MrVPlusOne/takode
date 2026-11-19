@@ -87,6 +87,7 @@ export function createLandingQuestHandoff(deps: {
       await wsBridge.completeLandedQuest(questId, completion, workerSessionId);
     },
     notify: (sessionId, text) => void wsBridge.injectUserMessage(sessionId, text, LANDING_QUEUE_MESSAGE_SOURCE),
+    sideQuestNote: (leaderSessionId, questId) => wsBridge.sideQuestNote(leaderSessionId, questId),
     commitLinks: async (questId, deliveryId) => {
       const quest = await questStore.getQuest(questId);
       const delivery = quest?.codeDeliveries?.find((item) => item.id === deliveryId);

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { fetchSupportingQuestAnswer, type SupportingQuestAnswer } from "../api/started-quests.js";
+import { fetchSideQuestAnswer, type SideQuestAnswer } from "../api/started-quests.js";
 import type { QuestmasterTask } from "../types.js";
 import { celebrationAnchor, playSparkle, usePlayOnArrival } from "./completion-celebration.js";
 import { playScenicMoment } from "../scenic/scenic-moments.js";
@@ -7,8 +7,8 @@ import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { ThreadMessageLink } from "./QuestForkLinks.js";
 import { QuestRecordFetchContext, QuestSummaryCard, useQuestRecord } from "./QuestSummaryCard.js";
 
-/** Supporting quests' delivering answers by quest ID, instead of loading them; the Playground provides these. */
-export const SupportingQuestAnswerContext = createContext<ReadonlyMap<string, SupportingQuestAnswer> | null>(null);
+/** Side quests' delivering answers by quest ID, instead of loading them; the Playground provides these. */
+export const SideQuestAnswerContext = createContext<ReadonlyMap<string, SideQuestAnswer> | null>(null);
 
 /**
  * Compact "Quest complete" card showing the quest's final debrief TLDR, expandable to
@@ -16,7 +16,7 @@ export const SupportingQuestAnswerContext = createContext<ReadonlyMap<string, Su
  * hides the card and a recompleted quest shows its current debrief. Renders nothing
  * until the quest is done, when cancelled, or when no debrief was recorded.
  *
- * A supporting quest's result was answered where the user asked, so its card leads with
+ * A side quest's result was answered where the user asked, so its card leads with
  * that answer ("Answered in <thread>") and keeps the debrief behind the toggle.
  *
  * When the card shows within moments of the quest finishing, a few stars twinkle around
@@ -32,7 +32,7 @@ export function QuestCompletionSummaryCard({
   questLinkSurface: QuestLinkSurface;
 }) {
   const quest = useQuestRecord(questId);
-  const answer = useSupportingQuestAnswer(quest, sessionId);
+  const answer = useSideQuestAnswer(quest, sessionId);
   const labelRef = useRef<HTMLSpanElement>(null);
   const completedAt = quest?.status === "done" && !quest.cancelled ? quest.completedAt : undefined;
   usePlayOnArrival(completedAt ? `quest-complete:${quest?.questId}:${completedAt}` : null, completedAt, () => {
@@ -72,24 +72,21 @@ export function QuestCompletionSummaryCard({
   );
 }
 
-/** The answer that delivered a done supporting quest's result, loaded once per quest version. */
-function useSupportingQuestAnswer(
-  quest: QuestmasterTask | null,
-  sessionId: string | undefined,
-): SupportingQuestAnswer | null {
-  const provided = useContext(SupportingQuestAnswerContext);
+/** The answer that delivered a done side quest's result, loaded once per quest version. */
+function useSideQuestAnswer(quest: QuestmasterTask | null, sessionId: string | undefined): SideQuestAnswer | null {
+  const provided = useContext(SideQuestAnswerContext);
   const fetchEnabled = useContext(QuestRecordFetchContext);
-  // Only quests filed from this leader's conversation can be supporting quests here.
+  // Only quests filed from this leader's conversation can be side quests here.
   const key =
     quest && sessionId && quest.status === "done" && quest.relationships?.startedFrom?.sessionId === sessionId
       ? `${quest.questId}:${quest.version}`
       : null;
   const questId = quest?.questId;
-  const [loaded, setLoaded] = useState<{ key: string; answer: SupportingQuestAnswer | null } | null>(null);
+  const [loaded, setLoaded] = useState<{ key: string; answer: SideQuestAnswer | null } | null>(null);
   useEffect(() => {
     if (!key || !questId || !sessionId || provided || !fetchEnabled) return;
     const controller = new AbortController();
-    fetchSupportingQuestAnswer(sessionId, questId, controller.signal)
+    fetchSideQuestAnswer(sessionId, questId, controller.signal)
       .then((answer) => setLoaded({ key, answer }))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) console.warn(`[quest-summary] ${questId} answer failed to load`, error);

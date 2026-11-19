@@ -12,6 +12,7 @@ import {
 } from "../../shared/markdown-report.js";
 import { recordReportUnreadNotification } from "../bridge/session-notification-controller.js";
 import type { RouteContext } from "./context.js";
+import { sideQuestOf } from "../side-quest.js";
 import type { GuidedReviewMeta } from "../../shared/guided-review.js";
 
 /** Publication accepts bytes already read by the authenticated agent; it never reads a server path. */
@@ -76,9 +77,13 @@ export function publishSessionReport(
     unreadText?: string;
   },
 ): { message: MarkdownReportMessage } | { error: string; status: 400 | 403 } {
-  const threadKey = readThread(input.threadKey);
+  const requestedThreadKey = readThread(input.threadKey);
+  // A side quest's report belongs where the user asked, as its results do (see sideQuestOf).
+  const isLeader = ctx.launcher.getSession(callerId)?.isOrchestrator === true;
+  const threadKey =
+    (isLeader && sideQuestOf(session.messageHistory, callerId, requestedThreadKey)?.threadKey) || requestedThreadKey;
   // A leader's Main is only its log: its reports go in the thread they are about.
-  if (threadKey === "main" && ctx.launcher.getSession(callerId)?.isOrchestrator === true) {
+  if (threadKey === "main" && isLeader) {
     return {
       error:
         "Leaders don't publish reports in Main: Main is your log, and the user's Home lists threads. " +

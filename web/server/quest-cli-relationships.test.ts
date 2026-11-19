@@ -101,5 +101,10 @@ describe("quest CLI relationships", () => {
     const handoffAlone = await runQuest(["create", "Forked", "--handoff"], home);
     expect(handoffAlone.status).not.toBe(0);
     expect(handoffAlone.stderr).toContain("give --source-message uN too");
+
+    // --own-thread marks a quest filed from a message, so a new quest needs one too.
+    const ownThreadAlone = await runQuest(["create", "Forked", "--own-thread"], home);
+    expect(ownThreadAlone.status).not.toBe(0);
+    expect(ownThreadAlone.stderr).toContain("--own-thread marks a quest filed from a message");
   });
 });

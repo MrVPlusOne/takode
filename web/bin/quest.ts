@@ -84,7 +84,14 @@ import {
 import { showHelp } from "./quest-help.js";
 import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js";
 import { runHistoryCommand } from "./quest-history-command.js";
-import { parseRelationshipFlags, parseSourceMessageFlag } from "./quest-relationship-flags.js";
+import { parseRelationshipFlags } from "./quest-relationship-flags.js";
+import {
+  handOffWhenOnBoard,
+  parseSourceMessageFlags,
+  reportStartedQuest,
+  type SourceMessageCli,
+  type SourceMessageFlags,
+} from "./quest-source-message.js";
 import { collectSessionIds, fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runCommitLinksCommand } from "./quest-commit-links.js";
 import { readDeliveryRange } from "../server/quest-delivery-range.js";
@@ -104,7 +111,6 @@ import {
 } from "./quest-status-mutation.js";
 import { createQuestServerClient } from "./quest-server-client.js";
 import { fileQuestUnderTopic, noteScribeFiles } from "./quest-topic.js";
-import { formatHandoffResult, type ThreadHandoffResult } from "./thread-handoff-format.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.js";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -807,6 +813,7 @@ async function cmdCreate(): Promise<void> {
     "session-space",
     "follow-up-of",
     "source-message",
+    "own-thread",
     "handoff",
     "topic",
     "image",
@@ -828,7 +835,7 @@ async function cmdCreate(): Promise<void> {
       'Usage: quest create [<title> | --title "..." | --title-file <path>|-] ' +
         '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] ' +
         '[--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] ' +
-        '[--source-message <uN> [--handoff]] [--image <path>] [--images "p1,p2"]',
+        '[--source-message <uN> [--handoff | --own-thread]] [--image <path>] [--images "p1,p2"]',
     );
   }
 
@@ -860,6 +867,8 @@ async function cmdCreate(): Promise<void> {
   if (flag("handoff") && !handoff)
     die("--handoff hands off the --source-message request: give --source-message uN too.");
   if (flag("handoff") && directCodex) die("--handoff needs a Takode leader session.");
+  if (sourceMessage.ownThread && !sourceMessage.startedFromUserMessageId)
+    die("--own-thread marks a quest filed from a message: give --source-message uN too.");
 
   try {
     const resolvedImages =
@@ -894,7 +903,8 @@ async function cmdCreate(): Promise<void> {
       const topic = option("topic");
       if (topic) await fileQuestUnderTopic(questServer, quest.questId, topic);
       else if (!jsonOutput) await noteScribeFiles(questServer);
-      if (handoff) await handOffWhenOnBoard(quest.questId, [handoff]);
+      if (handoff) await handOffWhenOnBoard(sourceMessageCli, quest.questId, [handoff]);
+      else if (sourceMessage.startedFromUserMessageId) await reportStartedQuest(sourceMessageCli, quest.questId, true);
     }
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
   } catch (e) {
@@ -902,41 +912,20 @@ async function cmdCreate(): Promise<void> {
   }
 }
 
-/**
- * Hands the leader's requests off to a quest it just filed or reopened, as `takode thread handoff`
- * does: at once when the quest is already active on its board, else when `takode board set` puts
- * it there (that command's output then says so).
- */
-async function handOffWhenOnBoard(questId: string, userMessageIds: string[]): Promise<void> {
-  if (!currentSessionId) die("--handoff needs a Takode leader session.");
+/** `--source-message uN` and `--own-thread`, which only the Takode server can resolve in the caller's conversation. */
+function sourceMessageOption(): SourceMessageFlags {
   try {
-    const { value } = await questServer.request<ThreadHandoffResult>(
-      "POST",
-      `/sessions/${encodeURIComponent(currentSessionId)}/thread/handoff`,
-      { questId, userMessageIds, whenOnBoard: true },
-    );
-    if (!jsonOutput) console.log(formatHandoffResult({ ...value, questId }));
-  } catch (e) {
-    // The quest itself is saved: say so, and how to hand off once the problem is fixed.
-    console.error(
-      `Not handed off: ${(e as Error).message}. ${questId} is saved; hand off with \`takode thread handoff ${questId} --user ${userMessageIds.join(" ")}\`.`,
-    );
-    process.exitCode = 1;
-  }
-}
-
-/** `--source-message uN`, which only the Takode server can resolve in the caller's conversation. */
-function sourceMessageOption(): ReturnType<typeof parseSourceMessageFlag> {
-  try {
-    const sourceMessage = parseSourceMessageFlag(option);
-    if (directCodex && "startedFromUserMessageId" in sourceMessage) {
-      die("--source-message needs a Takode-managed session");
+    const sourceMessage = parseSourceMessageFlags(option, flag);
+    if (directCodex && Object.keys(sourceMessage).length > 0) {
+      die("--source-message and --own-thread need a Takode-managed session");
     }
     return sourceMessage;
   } catch (e) {
     die((e as Error).message);
   }
 }
+
+const sourceMessageCli: SourceMessageCli = { questServer, sessionId: currentSessionId, json: jsonOutput };
 
 async function cmdComplete(): Promise<void> {
   validateFlags([
@@ -1327,6 +1316,7 @@ async function cmdEdit(): Promise<void> {
     "follow-up-of",
     "clear-follow-up-of",
     "source-message",
+    "own-thread",
     "topic",
     "json",
   ]);
@@ -1334,7 +1324,7 @@ async function cmdEdit(): Promise<void> {
   if (!id) {
     die(
       'Usage: quest edit <questId> [--title "..." | --title-file <path>|-] ' +
-        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--source-message <uN>]',
+        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--source-message <uN>] [--own-thread]',
     );
   }
 
@@ -1369,11 +1359,11 @@ async function cmdEdit(): Promise<void> {
     tags === undefined &&
     sessionSpaceSlug === undefined &&
     relationships === undefined &&
-    !("startedFromUserMessageId" in sourceMessage) &&
+    Object.keys(sourceMessage).length === 0 &&
     option("topic") === undefined
   ) {
     die(
-      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --session-space, --follow-up-of, --clear-follow-up-of, or --source-message is required",
+      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --session-space, --follow-up-of, --clear-follow-up-of, --source-message or --own-thread is required",
     );
   }
 
@@ -1418,6 +1408,7 @@ async function cmdEdit(): Promise<void> {
     } else {
       console.log(`Updated ${quest.questId} "${quest.title}"`);
     }
+    if (Object.keys(sourceMessage).length > 0) await reportStartedQuest(sourceMessageCli, quest.questId, false);
     const topic = option("topic");
     if (topic && !directCodex) await fileQuestUnderTopic(questServer, quest.questId, topic);
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
@@ -1863,7 +1854,7 @@ function roundCommandDeps(): QuestRoundCommandDeps {
     jsonOutput,
     out,
     die,
-    handOff: handOffWhenOnBoard,
+    handOff: (questId, userMessageIds) => handOffWhenOnBoard(sourceMessageCli, questId, userMessageIds),
   };
 }
 

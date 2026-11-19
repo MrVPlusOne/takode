@@ -8,11 +8,12 @@ import { buildLeaderUserMessageIdentities, findLeaderUserMessageById } from "../
 import type { QuestStartedFrom, QuestmasterTask } from "../quest-types.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import {
-  findSupportingQuestAnswer,
-  findSupportingQuestSource,
+  findSideQuestAnswer,
+  findSideQuestSource,
   indexLeaderRequests,
+  sideQuestNoteFor,
   type LeaderRequestIndex,
-} from "../supporting-quest.js";
+} from "../side-quest.js";
 import type { OptionalAuthResult } from "./context.js";
 
 /**
@@ -42,19 +43,43 @@ export function resolveQuestStartedFrom(
   };
 }
 
+/** The request fields `quest create` and `quest edit` send for `--source-message` and `--own-thread`. */
+export interface QuestSourceInput {
+  startedFromUserMessageId?: unknown;
+  ownThread?: unknown;
+}
+
+/**
+ * The `startedFrom` a quest create or edit sets: `--source-message uN` resolved in the caller's
+ * conversation, marked as the quest's own conversation with `--own-thread`. `--own-thread` alone
+ * marks the source the quest already has.
+ */
+export async function requestedQuestStartedFrom(
+  auth: OptionalAuthResult,
+  input: QuestSourceInput,
+  getHistory: (sessionId: string) => ReadonlyArray<BrowserIncomingMessage> | undefined,
+  currentStartedFrom: () => Promise<QuestStartedFrom | undefined>,
+): Promise<{ startedFrom: QuestStartedFrom } | { error: string } | null> {
+  const resolved = resolveQuestStartedFrom(auth, input.startedFromUserMessageId, getHistory);
+  if ((resolved && "error" in resolved) || input.ownThread !== true) return resolved;
+  const startedFrom = resolved?.startedFrom ?? (await currentStartedFrom());
+  if (!startedFrom) return { error: "--own-thread is for a quest filed from a message: give --source-message uN" };
+  return { startedFrom: { ...startedFrom, ownThread: true } };
+}
+
 /** A quest filed from a user's message in a leader session. */
 export interface StartedQuest {
   questId: string;
   title: string;
   startedFrom: QuestStartedFrom;
-  /** Whether it is a side (supporting) quest now; see findSupportingQuestSource. */
+  /** Whether it is a side quest now; see findSideQuestSource. */
   sideQuest: boolean;
 }
 
 /**
  * `GET /sessions/:id/started-quests`: the quests filed from the user's messages in one
  * leader session, so each source message can link on to the quest it started.
- * `GET /sessions/:id/started-quests/:questId/answer`: for a supporting quest, the leader's
+ * `GET /sessions/:id/started-quests/:questId/answer`: for a side quest, the leader's
  * answer that delivered its result, so the quest's own thread can show it.
  */
 export function registerStartedQuestsRoute(
@@ -76,11 +101,27 @@ export function registerStartedQuestsRoute(
       const startedFrom = quest.relationships?.startedFrom;
       if (startedFrom?.sessionId !== sessionId) continue;
       requests ??= indexLeaderRequests(deps.getHistory(sessionId) ?? []);
-      const sideQuest = !!findSupportingQuestSource(requests, sessionId, quest.questId, startedFrom);
+      const sideQuest = !!findSideQuestSource(requests, sessionId, quest.questId, startedFrom);
       quests.push({ questId: quest.questId, title: quest.title, startedFrom, sideQuest });
     }
     quests.push(...handedOffRequests(sessionId, deps.getHistory(sessionId) ?? [], allQuests, quests));
     return c.json({ quests });
+  });
+
+  // What a quest filed from this leader's messages is now, said the way the leader reads it
+  // (`quest create --source-message` prints it): a side quest, or its own conversation.
+  api.get("/sessions/:id/started-quests/:questId/kind", async (c) => {
+    const sessionId = deps.resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+    const questId = c.req.param("questId").toLowerCase();
+    const startedFrom = (await deps.getQuest(questId))?.relationships?.startedFrom;
+    if (startedFrom?.sessionId !== sessionId) return c.json({ sideQuest: false, note: null });
+    if (startedFrom.ownThread) {
+      const note = `${questId} is its own conversation: answer and post its results in its thread.`;
+      return c.json({ sideQuest: false, note });
+    }
+    const note = sideQuestNoteFor(deps.getHistory(sessionId) ?? [], sessionId, questId, undefined);
+    return c.json({ sideQuest: !!note, note });
   });
 
   api.get("/sessions/:id/started-quests/:questId/answer", async (c) => {
@@ -90,8 +131,8 @@ export function registerStartedQuestsRoute(
     if (!quest) return c.json({ error: "Quest not found" }, 404);
     const history = deps.getHistory(sessionId) ?? [];
     const startedFrom = quest.relationships?.startedFrom;
-    const source = findSupportingQuestSource(indexLeaderRequests(history), sessionId, quest.questId, startedFrom);
-    const answer = source ? findSupportingQuestAnswer(history, source, quest.questId, quest.createdAt) : null;
+    const source = findSideQuestSource(indexLeaderRequests(history), sessionId, quest.questId, startedFrom);
+    const answer = source ? findSideQuestAnswer(history, source, quest.questId, quest.createdAt) : null;
     return c.json({ answer });
   });
 }
