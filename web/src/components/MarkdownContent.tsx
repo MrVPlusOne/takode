@@ -65,6 +65,7 @@ import {
   buildFileLinkBrowserUrl,
   buildFileLinkImageVariantUrl,
   downloadFileLink,
+  fileLinkDownload,
   savesThroughShareSheet,
   ShareNeedsTapError,
   resolveFileLinkAction,
@@ -1113,7 +1114,14 @@ export const MarkdownContent = memo(function MarkdownContent({
       >
         {preparedMath.renderText}
       </Markdown>
-      {viewedImage && <Lightbox src={viewedImage.src} alt={viewedImage.alt} onClose={() => setViewedImage(null)} />}
+      {viewedImage && (
+        <Lightbox
+          src={viewedImage.src}
+          alt={viewedImage.alt}
+          download={viewedImage.download}
+          onClose={() => setViewedImage(null)}
+        />
+      )}
     </div>
   );
 }, areMarkdownContentPropsEqual);
@@ -1423,7 +1431,12 @@ function FileMarkdownLink({
         <ContextMenu x={menuPosition.x} y={menuPosition.y} items={menuItems} onClose={() => setMenuPosition(null)} />
       )}
       {previewUrl && (
-        <Lightbox src={previewUrl} alt={`Preview of ${target.path}`} onClose={() => setPreviewUrl(null)} />
+        <Lightbox
+          src={previewUrl}
+          alt={`Preview of ${target.path}`}
+          download={fileLinkDownload(actionTarget)}
+          onClose={() => setPreviewUrl(null)}
+        />
       )}
     </>
   );

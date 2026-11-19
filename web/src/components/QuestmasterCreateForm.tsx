@@ -9,6 +9,7 @@ import {
 import type { QuestImage, QuestmasterTask } from "../types.js";
 import { Lightbox } from "./Lightbox.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
+import type { ViewedImage } from "./inline-local-images.js";
 
 type EditorTarget = "newTitle" | "newDescription";
 
@@ -30,7 +31,7 @@ export const QuestmasterCreateForm = memo(function QuestmasterCreateForm({
   const [creating, setCreating] = useState(false);
   const [createImages, setCreateImages] = useState<QuestImage[]>([]);
   const [uploadingCreateImage, setUploadingCreateImage] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<ViewedImage | null>(null);
   const [error, setError] = useState("");
   const [editorHashtagQuery, setEditorHashtagQuery] = useState("");
   const [editorAutocompleteIndex, setEditorAutocompleteIndex] = useState(0);
@@ -318,7 +319,7 @@ export const QuestmasterCreateForm = memo(function QuestmasterCreateForm({
               <QuestImageThumbnail
                 key={img.id}
                 image={img}
-                onOpen={setLightboxSrc}
+                onOpen={setLightboxImage}
                 imageClassName="w-16 h-16 object-cover cursor-zoom-in"
                 showFilenameOverlay
                 overlayClassName="absolute bottom-0 left-0 right-0 bg-black/50 px-0.5 py-px text-[8px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity"
@@ -386,7 +387,14 @@ export const QuestmasterCreateForm = memo(function QuestmasterCreateForm({
           Cancel
         </button>
       </div>
-      {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightboxImage && (
+        <Lightbox
+          src={lightboxImage.src}
+          alt={lightboxImage.alt}
+          download={lightboxImage.download}
+          onClose={() => setLightboxImage(null)}
+        />
+      )}
     </div>
   );
 });

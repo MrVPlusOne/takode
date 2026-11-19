@@ -35,6 +35,7 @@ describe("image preview item provenance", () => {
         fullUrl: "/api/images/session-1/image-1/full",
         title: "first.png",
         expectedAttachment: true,
+        download: { url: "/api/images/session-1/image-1/full", name: "first.png" },
       },
       {
         id: "stored:session-1:image-2",
@@ -43,6 +44,8 @@ describe("image preview item provenance", () => {
         fullUrl: "/api/images/session-1/image-2/full",
         title: "image-2",
         expectedAttachment: true,
+        // A stored image without its upload's name is saved under its ID, with its type's extension.
+        download: { url: "/api/images/session-1/image-2/full", name: "image-2.jpg" },
       },
     ]);
   });
@@ -61,6 +64,7 @@ describe("image preview item provenance", () => {
         fullUrl: "/api/quests/_images/desktop",
         title: "desktop.png",
         expectedAttachment: true,
+        download: { url: "/api/quests/_images/desktop", name: "desktop.png" },
       },
       {
         id: "quest:mobile",
@@ -69,6 +73,7 @@ describe("image preview item provenance", () => {
         fullUrl: "/api/quests/_images/mobile",
         title: "mobile.jpeg",
         expectedAttachment: true,
+        download: { url: "/api/quests/_images/mobile", name: "mobile.jpeg" },
       },
     ]);
   });
@@ -140,6 +145,7 @@ describe("image preview item provenance", () => {
         fullUrl: "/api/images/session-1/image-1/full",
         title: "first.png",
         expectedAttachment: true,
+        download: { url: "/api/images/session-1/image-1/full", name: "first.png" },
       },
       {
         id: "stored:session-1:image-2",
@@ -154,6 +160,8 @@ describe("image preview item provenance", () => {
           thumbnailUrl: "/api/images/session-1/image-2/thumb",
           fullUrl: "/api/images/session-1/image-2/full",
         },
+        // Download saves the server's stored copy, which outlives this browser's local preview.
+        download: { url: "/api/images/session-1/image-2/full", name: "second.jpg" },
       },
     ]);
   });
@@ -286,5 +294,50 @@ describe("image preview item provenance", () => {
       "/api/fs/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-0.takode-agent.jpeg&variant=thumbnail",
       "/api/fs/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-1.takode-agent.jpeg&variant=thumbnail",
     ]);
+  });
+});
+
+/**
+ * What the viewers' Download saves for each kind of image: the original file, read through the
+ * session for an image a message names by path (so a remote host's file works), the server's
+ * stored copy for an upload, and this browser's own bytes for an image not yet sent.
+ */
+describe("image preview downloads", () => {
+  it("saves images named by path as the original file, read through the session", () => {
+    const items = buildAssistantImagePreviewItems(
+      message({
+        role: "assistant",
+        content: "Shown ![loop](/tmp/emoji/stamp.gif), linked [shot](file:shots/after.png) and /tmp/plots/run.png",
+      }),
+      "session-1",
+    );
+
+    expect(items.map((item) => item.download)).toEqual([
+      {
+        url: "/api/fs/file-link/download?path=%2Ftmp%2Femoji%2Fstamp.gif&isRelative=0&sessionId=session-1",
+        name: "stamp.gif",
+      },
+      { url: "/api/fs/file-link/download?path=shots%2Fafter.png&isRelative=1&sessionId=session-1", name: "after.png" },
+      {
+        url: "/api/fs/file-link/download?path=%2Ftmp%2Fplots%2Frun.png&isRelative=0&sessionId=session-1",
+        name: "run.png",
+      },
+    ]);
+  });
+
+  it("names a stored upload by the format it is kept in", () => {
+    // Uploads are stored compressed (a PNG becomes WebP), so the saved file takes WebP's extension.
+    const [item] = buildStoredImagePreviewItems(
+      [{ imageId: "image-1", media_type: "image/webp", sourceName: "Screenshot.png" }],
+      "session-1",
+    );
+    expect(item!.download).toEqual({ url: "/api/images/session-1/image-1/full", name: "Screenshot.webp" });
+  });
+
+  it("saves an image not yet sent from this browser's own copy", () => {
+    const [item] = buildUserImagePreviewItems(
+      message({ localImages: [{ name: "draft.png", mediaType: "image/png", base64: "ZmFrZQ==" }] }),
+    );
+    expect(item!.download).toEqual({ url: "data:image/png;base64,ZmFrZQ==", name: "draft.png" });
   });
 });

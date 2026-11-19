@@ -1849,7 +1849,14 @@ export function PlaygroundLightboxDemo() {
         onClick={() => setOpen(true)}
         data-testid="playground-lightbox-trigger"
       />
-      {open && <Lightbox src={demoSrc} alt="Lightbox demo" onClose={() => setOpen(false)} />}
+      {open && (
+        <Lightbox
+          src={demoSrc}
+          alt="Lightbox demo"
+          download={{ url: demoSrc, name: "lightbox-demo.svg" }}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </div>
   );
 }

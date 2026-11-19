@@ -3,6 +3,7 @@ import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
+import type { ViewedImage } from "./inline-local-images.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
@@ -51,7 +52,7 @@ export function QuestClaimBlock({
   const title = canonicalTitle ?? quest.title;
   const [open, setOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<ViewedImage | null>(null);
   const statusInfo = getQuestStatusTheme(quest.status);
   const isSubmitted = variant === "submitted";
   const headerLabel = isSubmitted ? "Quest Ready for Review" : "Quest Claimed";
@@ -63,13 +64,13 @@ export function QuestClaimBlock({
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         // Let the image lightbox close first.
-        if (lightboxSrc) return;
+        if (lightboxImage) return;
         setDetailsOpen(false);
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [detailsOpen, lightboxSrc]);
+  }, [detailsOpen, lightboxImage]);
 
   const renderQuestDetailsContent = (contentSurface: QuestLinkSurface) => (
     <>
@@ -127,7 +128,7 @@ export function QuestClaimBlock({
             <QuestImageThumbnail
               key={img.id}
               image={img}
-              onOpen={setLightboxSrc}
+              onOpen={setLightboxImage}
               imageClassName="w-20 h-20 object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
               showFilenameOverlay
               loading="lazy"
@@ -238,7 +239,14 @@ export function QuestClaimBlock({
       )}
 
       {/* Lightbox for full-size image viewing */}
-      {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightboxImage && (
+        <Lightbox
+          src={lightboxImage.src}
+          alt={lightboxImage.alt}
+          download={lightboxImage.download}
+          onClose={() => setLightboxImage(null)}
+        />
+      )}
     </div>
   );
 }

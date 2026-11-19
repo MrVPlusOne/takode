@@ -4,7 +4,6 @@ import { create } from "zustand";
 import { api, type EditorKind } from "../api.js";
 import {
   FileLinkRequestError,
-  ShareNeedsTapError,
   buildFileLinkBrowserUrl,
   buildFileLinkImageVariantUrl,
   buildFileLinkMediaUrl,
@@ -30,6 +29,7 @@ import { isTouchDevice } from "../utils/mobile.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { exportContent, type ExportFormat } from "../utils/artifact-export.js";
 import { DownloadButton, useCardExport } from "./CardMoreMenu.js";
+import { useSaveToDevice } from "./SaveFileButton.js";
 
 /** A file or folder to show, with the lines a link points at. */
 export interface FileViewerTarget extends FileLinkActionTarget {
@@ -453,7 +453,7 @@ function ShareSaveButton({
   isVideo: boolean;
   tooLarge: boolean;
 }) {
-  const [state, setState] = useState<"idle" | "saving" | "tap-again" | { error: string }>("idle");
+  const { state, run } = useSaveToDevice(save);
   const label = tooLarge
     ? "Too large to save"
     : state === "saving"
@@ -471,17 +471,7 @@ function ShareSaveButton({
         label={label}
         disabled={tooLarge || state === "saving"}
         onClick={() => {
-          if (tooLarge || state === "saving") return;
-          setState("saving");
-          save().then(
-            () => setState("idle"),
-            (error: unknown) =>
-              setState(
-                error instanceof ShareNeedsTapError
-                  ? "tap-again"
-                  : { error: error instanceof Error ? error.message : String(error) },
-              ),
-          );
+          if (!tooLarge) run();
         }}
       />
     </span>

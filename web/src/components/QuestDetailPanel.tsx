@@ -39,6 +39,7 @@ import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
+import type { ViewedImage } from "./inline-local-images.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
 import { QuestMachineStamp } from "./QuestMachineStamp.js";
@@ -158,7 +159,7 @@ export function QuestDetailPanel() {
 
   const [error, setError] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<ViewedImage | null>(null);
   const [historyForId, setHistoryForId] = useState<string | null>(null);
   const [highlightedFeedbackTarget, setHighlightedFeedbackTarget] = useState<QuestFeedbackTargetRequest | null>(null);
   const feedbackHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,7 +195,7 @@ export function QuestDetailPanel() {
     setConfirmDeleteFeedback(null);
     setError("");
     setConfirmDeleteId(null);
-    setLightboxSrc(null);
+    setLightboxImage(null);
     setHistoryForId(null);
     setHighlightedFeedbackTarget(null);
     if (feedbackHighlightTimerRef.current) clearTimeout(feedbackHighlightTimerRef.current);
@@ -232,7 +233,7 @@ export function QuestDetailPanel() {
     if (!questOverlayId) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      if (lightboxSrc) return; // Lightbox has its own Escape handler
+      if (lightboxImage) return; // Lightbox has its own Escape handler
       if (commitDiffState.activeCommitKey !== null) {
         commitDiffState.closeCommit();
         return;
@@ -253,7 +254,7 @@ export function QuestDetailPanel() {
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [questOverlayId, lightboxSrc, commitDiffState, confirmDeleteFeedback, editingFeedback, editingId, closePanel]);
+  }, [questOverlayId, lightboxImage, commitDiffState, confirmDeleteFeedback, editingFeedback, editingId, closePanel]);
 
   // On-demand details need not appear in the bounded quest list.
   useEffect(() => {
@@ -865,7 +866,7 @@ export function QuestDetailPanel() {
                   <QuestImageThumbnail
                     key={img.id}
                     image={img}
-                    onOpen={setLightboxSrc}
+                    onOpen={setLightboxImage}
                     frameClassName="relative group"
                     imageClassName="w-10 h-10 object-cover rounded cursor-pointer"
                     onRemove={() =>
@@ -957,7 +958,7 @@ export function QuestDetailPanel() {
                   <QuestImageThumbnail
                     key={img.id}
                     image={img}
-                    onOpen={setLightboxSrc}
+                    onOpen={setLightboxImage}
                     frameClassName="relative"
                     imageClassName="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
                     title={img.filename}
@@ -1211,7 +1212,7 @@ export function QuestDetailPanel() {
                       <QuestImageThumbnail
                         key={img.id}
                         image={img}
-                        onOpen={setLightboxSrc}
+                        onOpen={setLightboxImage}
                         imageClassName="w-24 h-24 object-cover cursor-zoom-in"
                         showFilenameOverlay
                         onRemove={(imageId) => handleRemoveImage(quest.questId, imageId)}
@@ -1315,7 +1316,7 @@ export function QuestDetailPanel() {
                     <QuestImageThumbnail
                       key={img.id}
                       image={img}
-                      onOpen={setLightboxSrc}
+                      onOpen={setLightboxImage}
                       imageClassName="w-20 h-20 object-cover cursor-zoom-in"
                       showFilenameOverlay
                     />
@@ -1402,7 +1403,7 @@ export function QuestDetailPanel() {
                             <QuestImageThumbnail
                               key={img.id}
                               image={img}
-                              onOpen={setLightboxSrc}
+                              onOpen={setLightboxImage}
                               frameClassName="relative group"
                               imageClassName="w-10 h-10 object-cover rounded cursor-pointer"
                               onRemove={() => setFeedbackImages((prev) => prev.filter((im) => im.id !== img.id))}
@@ -1573,7 +1574,14 @@ export function QuestDetailPanel() {
       )}
 
       {/* Lightbox */}
-      {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightboxImage && (
+        <Lightbox
+          src={lightboxImage.src}
+          alt={lightboxImage.alt}
+          download={lightboxImage.download}
+          onClose={() => setLightboxImage(null)}
+        />
+      )}
     </div>,
     portalTarget,
   );

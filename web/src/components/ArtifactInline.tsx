@@ -237,7 +237,7 @@ export function ArtifactVersionContentView({
       return <VisualBlock source={content.source} />;
     case "figure":
       return content.fileUrl ? (
-        <ZoomableFigure src={content.fileUrl} />
+        <ZoomableFigure src={content.fileUrl} name={fileName(content.path)} />
       ) : (
         <p className="py-1 text-[13px] text-cc-muted">Only the newest version of a figure is kept.</p>
       );
@@ -303,7 +303,11 @@ export function FigureImage({
 const LIBRARY_ATTACHMENTS: AttachmentRendering = {
   render: (attachment) =>
     attachment.figureId ? (
-      <ZoomableFigure src={`/api/artifacts/${encodeURIComponent(attachment.figureId)}/file`} thumbnail />
+      <ZoomableFigure
+        src={`/api/artifacts/${encodeURIComponent(attachment.figureId)}/file`}
+        name={fileName(attachment.path)}
+        thumbnail
+      />
     ) : (
       <span className="text-[12px] text-cc-muted">{attachment.path.split("/").pop()}</span>
     ),
@@ -417,7 +421,7 @@ export function StarIcon({ filled = false, className = "h-4 w-4" }: { filled?: b
 }
 
 /** A figure shown large; tapping it opens the image viewer, as in chat. */
-function ZoomableFigure({ src, thumbnail = false }: { src: string; thumbnail?: boolean }) {
+function ZoomableFigure({ src, name, thumbnail = false }: { src: string; name: string; thumbnail?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -433,7 +437,11 @@ function ZoomableFigure({ src, thumbnail = false }: { src: string; thumbnail?: b
           className={`${thumbnail ? "max-h-40" : "max-h-[70vh]"} max-w-full rounded-lg border border-cc-border`}
         />
       </button>
-      {open && <Lightbox src={src} onClose={() => setOpen(false)} />}
+      {open && <Lightbox src={src} download={{ url: src, name }} onClose={() => setOpen(false)} />}
     </>
   );
+}
+
+function fileName(path: string): string {
+  return path.split("/").pop() || "figure";
 }

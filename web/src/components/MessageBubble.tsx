@@ -1011,7 +1011,12 @@ function UserMessage({
       {/* Holds the menu's place so the bubble does not shift sideways when the message lands. */}
       {!readOnly && message.pendingState && <span aria-hidden="true" className="w-[22px] shrink-0" />}
       {lightboxSelection && (
-        <Lightbox src={lightboxSelection.src} alt="attachment" onClose={() => setLightboxSelection(null)} />
+        <Lightbox
+          src={lightboxSelection.src}
+          alt="attachment"
+          download={imagePreviewItems.find((image) => image.id === lightboxSelection.id)?.download}
+          onClose={() => setLightboxSelection(null)}
+        />
       )}
     </div>
   );

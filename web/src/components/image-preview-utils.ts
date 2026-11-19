@@ -1,7 +1,12 @@
 import { draftAttachmentPaths } from "../../shared/draft-posts.js";
 import type { ChatMessage, ImageRef, LocalImageAttachment, QuestImage } from "../types.js";
 import { api } from "../api.js";
-import { buildFileLinkImageVariantUrl } from "../api/file-link-actions.js";
+import {
+  buildFileLinkImageVariantUrl,
+  fileLinkDownload,
+  nameForType,
+  type SaveableFile,
+} from "../api/file-link-actions.js";
 import { findLocalImageReferences } from "../../shared/local-image-references.js";
 
 export { matchAbsoluteImagePaths } from "../../shared/local-image-references.js";
@@ -25,6 +30,8 @@ export interface ImagePreviewItem {
   localImageId?: string;
   /** Backend URLs to use if a browser-local preview fails. */
   fallback?: { thumbnailUrl: string; fullUrl: string };
+  /** The file the viewer's Download saves: the original, not the compressed copy it shows. */
+  download?: SaveableFile;
 }
 
 interface LocalReferenceOptions {
@@ -42,7 +49,7 @@ export function extractMentionedLocalImagePreviewItems(
     if (reference.kind === "markdown") return markdownImagePreviewItem(reference, options.sessionId);
     return reference.isRelative
       ? previewItemForRelativeFileLink(reference.path, options.sessionId)
-      : previewItemForAbsolutePath(reference.path);
+      : previewItemForAbsolutePath(reference.path, options.sessionId);
   });
 }
 
@@ -108,6 +115,7 @@ export function buildQuestImagePreviewItems(images: QuestImage[]): ImagePreviewI
       fullUrl: url,
       title: image.filename,
       expectedAttachment: true,
+      download: { url, name: nameForType(image.filename, image.mimeType) },
     };
   });
 }
@@ -139,9 +147,10 @@ function previewItemFromLocalAttachment(
 ): ImagePreviewItem {
   const dataUrl = image.base64 ? `data:${image.mediaType};base64,${image.base64}` : "";
   const previewUrl = image.previewUrl ?? dataUrl;
+  const name = image.name || `attachment-${index + 1}`;
   return {
     id: stableId ?? `local:${image.imageId ?? image.name ?? "attachment"}:${index}`,
-    filename: image.name || `attachment-${index + 1}`,
+    filename: name,
     thumbnailUrl: previewUrl,
     fullUrl: previewUrl,
     title: image.name || "attachment",
@@ -149,17 +158,25 @@ function previewItemFromLocalAttachment(
     immediatelyAvailable: Boolean(previewUrl),
     ...(image.imageId ? { localImageId: image.imageId } : {}),
     ...(fallback ? { fallback: { thumbnailUrl: fallback.thumbnailUrl, fullUrl: fallback.fullUrl } } : {}),
+    // The server's stored copy, once sent; until then the bytes this browser holds.
+    ...(fallback?.download
+      ? { download: fallback.download }
+      : previewUrl
+        ? { download: { url: previewUrl, name } }
+        : {}),
   };
 }
 
 function previewItemFromStoredRef(image: ImageRef, sessionId: string): ImagePreviewItem {
+  const fullUrl = `/api/images/${sessionId}/${image.imageId}/full`;
   return {
     id: `stored:${sessionId}:${image.imageId}`,
     filename: image.sourceName || image.imageId,
     thumbnailUrl: `/api/images/${sessionId}/${image.imageId}/thumb`,
-    fullUrl: `/api/images/${sessionId}/${image.imageId}/full`,
+    fullUrl,
     title: image.sourceName || image.imageId,
     expectedAttachment: true,
+    download: { url: fullUrl, name: nameForType(image.sourceName || image.imageId, image.media_type) },
   };
 }
 
@@ -176,7 +193,7 @@ function assistantVisibleText(message: ChatMessage): string {
   return blockText.trim() ? blockText : message.content;
 }
 
-function previewItemForAbsolutePath(path: string): ImagePreviewItem {
+function previewItemForAbsolutePath(path: string, sessionId: string | undefined): ImagePreviewItem {
   const filename = filenameForPath(path);
   return {
     id: imagePreviewIdForLocalPath(path, false),
@@ -185,6 +202,7 @@ function previewItemForAbsolutePath(path: string): ImagePreviewItem {
     fullUrl: api.getFsImageUrl(path, "full"),
     title: path,
     sourcePath: path,
+    download: fileLinkDownload({ path, isRelative: false, ...(sessionId ? { sessionId } : {}) }),
   };
 }
 
@@ -202,6 +220,7 @@ function markdownImagePreviewItem(
     sourcePath: target.path,
     expectedAttachment: true,
     showWhenMissing: true,
+    download: fileLinkDownload(fileTarget),
   };
 }
 
@@ -215,6 +234,7 @@ function previewItemForRelativeFileLink(path: string, sessionId: string | undefi
     fullUrl: buildFileLinkImageVariantUrl(target, "full"),
     title: path,
     sourcePath: path,
+    download: fileLinkDownload(target),
   };
 }
 

@@ -1,10 +1,12 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { api } from "../api.js";
+import { nameForType } from "../api/file-link-actions.js";
 import type { QuestImage } from "../types.js";
+import type { ViewedImage } from "./inline-local-images.js";
 
 interface QuestImageThumbnailProps {
   image: QuestImage;
-  onOpen: (src: string) => void;
+  onOpen: (image: ViewedImage) => void;
   frameClassName?: string;
   imageClassName?: string;
   showFilenameOverlay?: boolean;
@@ -38,11 +40,16 @@ export function QuestImageThumbnail({
   removeContent,
 }: QuestImageThumbnailProps) {
   const src = api.questImageUrl(image.id);
+  const viewed: ViewedImage = {
+    src,
+    alt: image.filename,
+    download: { url: src, name: nameForType(image.filename, image.mimeType) },
+  };
 
   function handleKeyDown(e: KeyboardEvent<HTMLImageElement>) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      onOpen(src);
+      onOpen(viewed);
     }
   }
 
@@ -53,7 +60,7 @@ export function QuestImageThumbnail({
         alt={image.filename}
         title={title}
         className={imageClassName}
-        onClick={() => onOpen(src)}
+        onClick={() => onOpen(viewed)}
         onKeyDown={handleKeyDown}
         loading={loading}
         decoding={decoding}

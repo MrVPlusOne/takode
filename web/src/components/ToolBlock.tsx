@@ -23,6 +23,7 @@ import { CopyFormatButton } from "./CopyFormatButton.js";
 import { BoardBlock, type BoardProposalReviewPayload, type BoardRowData } from "./BoardBlock.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
+import { fileLinkDownload } from "../api/file-link-actions.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
 import {
   getChangePatch,
@@ -911,7 +912,14 @@ function ToolResultSection({
           />
           <div className="mt-1 text-[10px] text-cc-muted">Binary image output hidden.</div>
         </div>
-        {lightboxSrc && <Lightbox src={lightboxSrc} alt={imagePath} onClose={() => setLightboxSrc(null)} />}
+        {lightboxSrc && (
+          <Lightbox
+            src={lightboxSrc}
+            alt={imagePath}
+            download={fileLinkDownload({ path: imagePath, isRelative: false, sessionId })}
+            onClose={() => setLightboxSrc(null)}
+          />
+        )}
       </div>
     );
   }

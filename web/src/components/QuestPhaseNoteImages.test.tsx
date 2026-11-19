@@ -30,6 +30,11 @@ describe("QuestPhaseNoteImages", () => {
         fullUrl: "/api/fs/image?path=%2Ftmp%2Frun%2Fdesktop.png&variant=full",
         title: "/tmp/run/desktop.png",
         sourcePath: "/tmp/run/desktop.png",
+        // The viewer's Download saves the original file, not the preview variant.
+        download: {
+          url: "/api/fs/file-link/download?path=%2Ftmp%2Frun%2Fdesktop.png&isRelative=0",
+          name: "desktop.png",
+        },
       },
       {
         id: "path:/Users/me/shot two.jpeg",
@@ -38,6 +43,10 @@ describe("QuestPhaseNoteImages", () => {
         fullUrl: "/api/fs/image?path=%2FUsers%2Fme%2Fshot+two.jpeg&variant=full",
         title: "/Users/me/shot two.jpeg",
         sourcePath: "/Users/me/shot two.jpeg",
+        download: {
+          url: "/api/fs/file-link/download?path=%2FUsers%2Fme%2Fshot+two.jpeg&isRelative=0",
+          name: "shot two.jpeg",
+        },
       },
     ]);
   });
@@ -57,6 +66,10 @@ describe("QuestPhaseNoteImages", () => {
         fullUrl: "/api/fs/file-link/image?path=artifacts%2Fpreview.png&isRelative=1&variant=full&sessionId=s1",
         title: "artifacts/preview.png",
         sourcePath: "artifacts/preview.png",
+        download: {
+          url: "/api/fs/file-link/download?path=artifacts%2Fpreview.png&isRelative=1&sessionId=s1",
+          name: "preview.png",
+        },
       },
       {
         // Markdown image syntax is a deliberate image: it reserves a slot, stays visible
@@ -69,6 +82,10 @@ describe("QuestPhaseNoteImages", () => {
         sourcePath: "/tmp/shot.png",
         expectedAttachment: true,
         showWhenMissing: true,
+        download: {
+          url: "/api/fs/file-link/download?path=%2Ftmp%2Fshot.png&isRelative=0&sessionId=s1",
+          name: "shot.png",
+        },
       },
     ]);
   });

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ShareNeedsTapError, downloadFileLink, savesThroughShareSheet } from "./file-link-actions.js";
+import { ShareNeedsTapError, downloadFileLink, nameForType, savesThroughShareSheet } from "./file-link-actions.js";
 
 /**
  * Saving a linked file to the device. A download in the iPhone Home Screen app replaces Takode
@@ -58,5 +58,17 @@ describe("downloadFileLink", () => {
 
     share.mockRejectedValueOnce(new DOMException("closed", "AbortError"));
     await expect(downloadFileLink(target)).resolves.toBeUndefined();
+  });
+});
+
+/** A stored copy kept in another format than its upload is saved under its own type's extension. */
+describe("nameForType", () => {
+  it("keeps a name that matches the type and swaps one that does not", () => {
+    expect(nameForType("stamp.gif", "image/gif")).toBe("stamp.gif");
+    expect(nameForType("photo.jpg", "image/jpeg")).toBe("photo.jpg");
+    expect(nameForType("Screenshot.png", "image/webp")).toBe("Screenshot.webp");
+    expect(nameForType("1795049267731-16-bfb13e", "image/png")).toBe("1795049267731-16-bfb13e.png");
+    // A type with no known extension leaves the name alone.
+    expect(nameForType("diagram.svg", "image/svg+xml")).toBe("diagram.svg");
   });
 });

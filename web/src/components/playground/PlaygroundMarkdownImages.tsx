@@ -31,7 +31,7 @@ const TEXT = `Here are the tabs after the change:
 /**
  * An agent message showing images with Markdown image syntax. Each keeps its tile from the first
  * render: loaded, still loading, and missing (the file can no longer be fetched). The loaded one
- * is a starred Library figure, so its viewer has the star.
+ * is a starred Library figure, so its viewer has the star, and its viewer offers Download.
  */
 export function PlaygroundMarkdownImages() {
   const images = useMemo<ImagePreviewItem[]>(
@@ -49,6 +49,8 @@ export function PlaygroundMarkdownImages() {
         sourcePath: path,
         expectedAttachment: true,
         showWhenMissing: true,
+        // A real message saves the file from its machine; the fixture saves the picture it shows.
+        ...(url ? { download: { url, name: path.split("/").at(-1) ?? path } } : {}),
       })),
     [],
   );

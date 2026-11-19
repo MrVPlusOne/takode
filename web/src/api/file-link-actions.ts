@@ -136,23 +136,44 @@ function shareTypeFor(name: string): string {
   return fileLinkMediaType(name)?.mimeType ?? IMAGE_TYPES[extension] ?? "application/octet-stream";
 }
 
+/** A file the browser can save to its device: where to fetch it, and the name to save it under. */
+export interface SaveableFile {
+  url: string;
+  name: string;
+}
+
+/** A linked file as saved: its original bytes, read on the machine that holds the session's files. */
+export function fileLinkDownload(target: FileLinkActionTarget): SaveableFile {
+  return {
+    url: `${BASE}/fs/file-link/download?${fileLinkParams(target)}`,
+    name: target.path.split(/[\\/]/).pop() || "file",
+  };
+}
+
+/**
+ * `name` with the extension of `mimeType`, for a stored copy kept in another format than the
+ * upload it is named after (an uploaded PNG is stored as WebP), so the saved file opens.
+ */
+export function nameForType(name: string, mimeType: string): string {
+  const extension = Object.entries(IMAGE_TYPES).find(([, type]) => type === mimeType)?.[0];
+  if (!extension || shareTypeFor(name) === mimeType) return name;
+  return `${name.replace(/\.[a-z0-9]+$/i, "") || "image"}.${extension}`;
+}
+
 /** The file last fetched for the share sheet, kept for the second tap a slow fetch needs. */
 let sharedFile: { url: string; file: File } | null = null;
 
 /**
- * Save a linked file, as its original bytes and name, to the device the browser runs on: through
- * the share sheet on phones (see `savesThroughShareSheet`), else as a download. The file is read on
- * the machine that holds the linking session's files, so this works for remote hosts too. Rejects
- * with `ShareNeedsTapError` when the share sheet needs another tap; closing the sheet is not an error.
+ * Save a file to the device the browser runs on: through the share sheet on phones (see
+ * `savesThroughShareSheet`), else as a download. Rejects with `ShareNeedsTapError` when the share
+ * sheet needs another tap; closing the sheet is not an error.
  */
-export async function downloadFileLink(target: FileLinkActionTarget): Promise<void> {
-  const url = `${BASE}/fs/file-link/download?${fileLinkParams(target)}`;
-  if (!savesThroughShareSheet()) return saveUrl(url, "");
+export async function saveFileToDevice({ url, name }: SaveableFile): Promise<void> {
+  if (!savesThroughShareSheet()) return saveUrl(url, name);
   let file = sharedFile?.url === url ? sharedFile.file : null;
   if (!file) {
     const response = await fetch(url);
     if (!response.ok) throw new Error((await response.text()) || `Download failed with status ${response.status}`);
-    const name = target.path.split(/[\\/]/).pop() || "file";
     file = new File([await response.blob()], name, { type: shareTypeFor(name) });
     sharedFile = { url, file };
   }
@@ -163,6 +184,15 @@ export async function downloadFileLink(target: FileLinkActionTarget): Promise<vo
     if (error instanceof DOMException && error.name === "NotAllowedError") throw new ShareNeedsTapError();
     throw error;
   }
+}
+
+/**
+ * Save a linked file, as its original bytes and name, to the device the browser runs on (see
+ * `saveFileToDevice`). The file is read on the machine that holds the linking session's files, so
+ * this works for remote hosts too.
+ */
+export function downloadFileLink(target: FileLinkActionTarget): Promise<void> {
+  return saveFileToDevice(fileLinkDownload(target));
 }
 
 export function buildFileLinkImageVariantUrl(target: FileLinkActionTarget, variant: "thumbnail" | "full"): string {

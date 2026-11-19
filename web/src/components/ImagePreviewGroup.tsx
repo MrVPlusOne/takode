@@ -7,6 +7,8 @@ import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
 import { canWriteClipboardImage, writeClipboardText } from "../utils/copy-utils.js";
 import { CopyImageButton } from "./CopyImageButton.js";
+import { SaveFileButton } from "./SaveFileButton.js";
+import type { SaveableFile } from "../api/file-link-actions.js";
 import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
 import { useConversationShown } from "./KeptConversationViews.js";
 import { StarIcon } from "./ArtifactInline.js";
@@ -522,7 +524,13 @@ function ImagePreviewModal({
             </IconButton>
           </div>
         </div>
-        <ModalCopyRow key={image.id} path={image.sourcePath} imageSrc={download.displaySrc} figure={figure} />
+        <ModalCopyRow
+          key={image.id}
+          path={image.sourcePath}
+          imageSrc={download.displaySrc}
+          file={image.download}
+          figure={figure}
+        />
         <ZoomableImage
           src={download.displaySrc}
           alt={image.filename}
@@ -542,16 +550,18 @@ const MODAL_COPY_BUTTON_CLASS =
 
 /**
  * The row under the header: the image's full path when it has one, its Library star when the
- * message saved it as a figure, Copy path, and Copy image. The star sits here rather than in the
- * header, where one more button leaves a phone no room for the file name.
+ * message saved it as a figure, Copy path, Copy image, and Download (the original file). These sit
+ * here rather than in the header, where one more button leaves a phone no room for the file name.
  */
 function ModalCopyRow({
   path,
   imageSrc,
+  file,
   figure,
 }: {
   path: string | undefined;
   imageSrc: string | null;
+  file: SaveableFile | undefined;
   figure: ArtifactMessageMarker | undefined;
 }) {
   const [pathCopied, setPathCopied] = useState(false);
@@ -561,31 +571,39 @@ function ModalCopyRow({
     return () => clearTimeout(timer);
   }, [pathCopied]);
 
-  if (!path && !canWriteClipboardImage()) return null;
+  if (!path && !file && !canWriteClipboardImage()) return null;
 
   return (
     <div
-      className="flex shrink-0 items-center gap-2 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
+      className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:flex-nowrap sm:px-4"
       data-testid="image-preview-modal-path"
     >
-      <span className="min-w-0 flex-1 select-text break-all font-mono-code text-xs text-cc-muted">{path}</span>
-      {figure && <FigureStarButton figure={figure} />}
-      {path && (
-        <button
-          type="button"
-          className={MODAL_COPY_BUTTON_CLASS}
-          onClick={(event) => {
-            event.stopPropagation();
-            writeClipboardText(path)
-              .then(() => setPathCopied(true))
-              .catch(console.error);
-          }}
-          aria-label="Copy image path"
-        >
-          {pathCopied ? "Copied" : "Copy path"}
-        </button>
-      )}
-      <CopyImageButton src={imageSrc} className={MODAL_COPY_BUTTON_CLASS} />
+      {/* On a phone the path takes its own line, so the buttons below don't squeeze it to a sliver. */}
+      <span
+        className={`min-w-0 select-text break-all font-mono-code text-xs text-cc-muted ${path ? "basis-full sm:basis-0 sm:flex-1" : "flex-1"}`}
+      >
+        {path}
+      </span>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {figure && <FigureStarButton figure={figure} />}
+        {path && (
+          <button
+            type="button"
+            className={MODAL_COPY_BUTTON_CLASS}
+            onClick={(event) => {
+              event.stopPropagation();
+              writeClipboardText(path)
+                .then(() => setPathCopied(true))
+                .catch(console.error);
+            }}
+            aria-label="Copy image path"
+          >
+            {pathCopied ? "Copied" : "Copy path"}
+          </button>
+        )}
+        <CopyImageButton src={imageSrc} className={MODAL_COPY_BUTTON_CLASS} />
+        {file && <SaveFileButton file={file} className={MODAL_COPY_BUTTON_CLASS} />}
+      </div>
     </div>
   );
 }

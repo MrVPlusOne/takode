@@ -1,5 +1,6 @@
 import { createContext, useContext, useState } from "react";
 import { findLocalImageReferences } from "../../shared/local-image-references.js";
+import { fileLinkDownload, type SaveableFile } from "../api/file-link-actions.js";
 
 /**
  * Markdown images with local paths shown inline, where chat would show them as thumbnails, for
@@ -51,10 +52,11 @@ function servedLocalImageOf(source: string): LocalImage | null {
 
 const SERVED_IMAGE_PATH = "/api/fs/file-link/image?";
 
-/** An image for the image viewer: its full-size source and its description. */
+/** An image for the image viewer: its full-size source, its description and the file Download saves. */
 export interface ViewedImage {
   src: string;
   alt: string;
+  download?: SaveableFile;
 }
 
 /**
@@ -71,10 +73,13 @@ export function ViewableImage({
   loading,
   onError,
   onOpen,
+  download,
 }: {
   src: string;
   /** The image the viewer shows, when `src` is a smaller version. */
   fullSrc?: string;
+  /** The file the viewer's Download saves; images from other sites have none. */
+  download?: SaveableFile;
   alt: string;
   title?: string;
   className?: string;
@@ -91,7 +96,7 @@ export function ViewableImage({
       onClick={(event) => {
         // Surfaces that open on a click (a collapsed card, a list row) must not also react.
         event.stopPropagation();
-        onOpen({ src: fullSrc, alt: alt || title || "Full-size image" });
+        onOpen({ src: fullSrc, alt: alt || title || "Full-size image", ...(download ? { download } : {}) });
       }}
       className="my-1 block max-w-full cursor-zoom-in"
       title={title ?? alt}
@@ -141,6 +146,7 @@ export function InlineLocalImage({
       title={alt || path}
       loading="lazy"
       onError={() => setFailed(true)}
+      download={fileLinkDownload({ path, isRelative, ...(sessionId ? { sessionId } : {}) })}
       // A full image (a plot) takes the page's width; a thumbnail stays small.
       className={`${variant === "thumbnail" ? "max-h-80 " : ""}max-w-full rounded-lg border border-cc-border bg-cc-code-bg object-contain`}
       onOpen={onOpen}
