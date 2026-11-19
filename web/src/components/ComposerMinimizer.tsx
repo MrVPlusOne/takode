@@ -12,8 +12,14 @@ export function ComposerMinimizer({
   onExpandedChange,
   collapseOnEscape = false,
   overlay = false,
+  floating,
 }: {
   children: ReactNode;
+  /**
+   * Shown floating over the bottom of the feed just above the composer, collapsed or expanded. The feed
+   * gets as much extra scroll room as it is tall, so it never permanently covers the feed's last lines.
+   */
+  floating?: ReactNode;
   destination: string;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
@@ -22,9 +28,10 @@ export function ComposerMinimizer({
   overlay?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const above = useRef<HTMLDivElement>(null);
   const insidePointerEvent = useRef<Event | null>(null);
   const insideFocusEvent = useRef<Event | null>(null);
-  useComposerOverlayMeasurement(root, overlay);
+  useComposerOverlayMeasurement(root, overlay, above);
 
   useEffect(() => {
     const pointerDown = (event: PointerEvent) => {
@@ -69,7 +76,7 @@ export function ComposerMinimizer({
     <div className={`relative shrink-0 ${overlay ? "composer-dock" : ""}`}>
       <div
         ref={root}
-        className="composer-boundary shrink-0"
+        className="composer-boundary relative shrink-0"
         data-testid="composer-minimizer"
         data-collapsed={!expanded}
         onPointerDownCapture={(event) => {
@@ -88,7 +95,13 @@ export function ComposerMinimizer({
           onExpandedChange(false);
         }}
       >
-        <ComposerVisibilityContext.Provider value={expanded}>{children}</ComposerVisibilityContext.Provider>
+        <ComposerVisibilityContext.Provider value={expanded}>
+          {/* Taking no room of its own: in flow it would cut the feed short and leave a band beside it. */}
+          <div ref={above} className="pointer-events-none absolute inset-x-0 bottom-full z-20">
+            {floating}
+          </div>
+          {children}
+        </ComposerVisibilityContext.Provider>
       </div>
     </div>
   );

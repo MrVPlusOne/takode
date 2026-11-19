@@ -33,24 +33,35 @@ export function ComposerFeedLayout({ children }: { children: ReactNode }) {
   );
 }
 
-/** Measure only the part outside the reserved dock; in-flow touch layouts contribute nothing. */
-export function useComposerOverlayMeasurement(root: RefObject<HTMLDivElement | null>, overlay: boolean) {
+/**
+ * Measure how far the composer reaches over the feed: the part of an expanded desktop composer outside
+ * its reserved dock (an in-flow touch composer has none), plus whatever floats above the composer
+ * (`floating`, such as its comment chips) on every layout.
+ */
+export function useComposerOverlayMeasurement(
+  root: RefObject<HTMLDivElement | null>,
+  overlay: boolean,
+  floating?: RefObject<HTMLDivElement | null>,
+) {
   const reportHeight = useContext(ReportOverlayHeightContext);
   useLayoutEffect(() => {
     const boundary = root.current;
     const dock = boundary?.parentElement;
+    const above = floating?.current;
     if (!overlay || !boundary || !dock || !reportHeight) return;
     // offsetHeight stays in layout pixels even when the app uses CSS zoom.
-    const measure = () => reportHeight(Math.max(0, boundary.offsetHeight - dock.offsetHeight));
+    const measure = () =>
+      reportHeight(Math.max(0, boundary.offsetHeight - dock.offsetHeight) + (above?.offsetHeight ?? 0));
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(boundary);
     observer?.observe(dock);
+    if (above) observer?.observe(above);
     return () => {
       observer?.disconnect();
       reportHeight(0);
     };
-  }, [overlay, reportHeight, root]);
+  }, [overlay, reportHeight, root, floating]);
 }
 
 /**

@@ -70,6 +70,54 @@ it("reserves nothing for an in-flow composer and measures overlay clearance in l
   expect(disconnect).toHaveBeenCalledOnce();
 });
 
+function FloatingComposer() {
+  const root = useRef<HTMLDivElement>(null);
+  const above = useRef<HTMLDivElement>(null);
+  useComposerOverlayMeasurement(root, true, above);
+  return (
+    <div data-testid="dock">
+      <div ref={root} data-testid="boundary">
+        <div ref={above} data-testid="floating" />
+      </div>
+    </div>
+  );
+}
+
+it("gives an in-flow composer's floating row the same scroll room on every layout", () => {
+  // On a phone the composer sits in flow (dock and boundary are equally tall), so only the row floating
+  // over the feed, such as the comment chips, reaches over it. The feed must get exactly that much room;
+  // taking the row's height out of the feed instead left an empty band beside the chips.
+  let floatingHeight = 34;
+  let notify: () => void = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        notify = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    if (this.dataset.testid === "floating") return floatingHeight;
+    return this.dataset.testid === "dock" || this.dataset.testid === "boundary" ? 57 : 0;
+  });
+  render(
+    <ComposerFeedLayout>
+      <Clearance />
+      <FloatingComposer />
+    </ComposerFeedLayout>,
+  );
+  expect(screen.getByRole("status").textContent).toBe("34");
+  // The last comment removed: no room is added, though the reservation for this view stays.
+  act(() => {
+    floatingHeight = 0;
+    notify();
+  });
+  expect(screen.getByRole("status").textContent).toBe("34");
+});
+
 function FloatingPill() {
   return <div data-testid="pill" style={useComposerOverlayLift()} />;
 }

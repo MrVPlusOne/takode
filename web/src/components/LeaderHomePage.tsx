@@ -8,7 +8,7 @@ import { navigateToSessionThread } from "../utils/routing.js";
 import { openTopicsInSide } from "../utils/side-column.js";
 import { ALL_THREADS_KEY } from "../utils/thread-projection.js";
 import { Composer } from "./Composer.js";
-import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
+import { useComposerOverlayLift, useComposerScrollSpace } from "./ComposerFeedLayout.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { threadNameFromMessage } from "./side-column/thread-names.js";
 import { homeComposerDraftKey } from "../draft-sync-bridge.js";
@@ -22,14 +22,19 @@ import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThrea
 export function LeaderHomePage({ leaderId }: { leaderId: string }) {
   const threads = useLeaderThreadMembers((state) => state.byLeader[leaderId]) ?? EMPTY_THREADS;
   const composerOverlayLift = useComposerOverlayLift();
+  // Room for what the composer lays over the page's bottom (its comment chips, an expanded desktop box).
+  const composerRoom = useComposerScrollSpace(`leader-home:${leaderId}`);
   return (
     <>
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* Wider as the main view grows (by its own width: the side column takes room from it), so
             rows truncate no more than they must (Jiayi, Nov 1). The bottom room keeps the last row
-            clear of the Next chip. */}
+            clear of the Next chip and of whatever the composer lays over the page. */}
         <div className="@container min-h-0 flex-1 overflow-y-auto" data-testid="leader-home">
-          <div className="mx-auto w-full max-w-3xl px-3 pb-14 pt-4 sm:px-6 @5xl:max-w-4xl @6xl:max-w-5xl">
+          <div
+            className="mx-auto w-full max-w-3xl px-3 pb-14 pt-4 sm:px-6 @5xl:max-w-4xl @6xl:max-w-5xl"
+            style={composerRoom > 0 ? { paddingBottom: `calc(3.5rem + ${composerRoom}px)` } : undefined}
+          >
             <LeaderHomeContent leaderId={leaderId} threads={threads} composerBelow />
           </div>
         </div>

@@ -1714,14 +1714,16 @@ export function Composer({
       // Escape while voice input records or transcribes stays voice's (it cancels the recording).
       collapseOnEscape={typeToCompose && !keepComposerOpen}
       overlay
+      floating={
+        <ComposerAnnotations
+          sessionId={sessionId}
+          draftKey={draftKey}
+          threadKey={transcriptionThreadKey ?? threadKey}
+          threadTitle={transcriptionThreadTitle}
+          disabled={!canUseInput}
+        />
+      }
     >
-      <ComposerAnnotations
-        sessionId={sessionId}
-        draftKey={draftKey}
-        threadKey={transcriptionThreadKey ?? threadKey}
-        threadTitle={transcriptionThreadTitle}
-        disabled={!canUseInput}
-      />
       <div
         className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "composer-collapsed-lift px-2 py-1.5" : "px-2 sm:px-4 py-2 sm:py-3"}`}
       >

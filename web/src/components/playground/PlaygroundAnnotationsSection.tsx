@@ -80,8 +80,14 @@ export function PlaygroundAnnotationsSection() {
           <AnnotationSourceMarkers sessionId={SESSION} messageId="annotation-example" />
         </div>
         <SelectionContextMenu selection={selection} sessionId={SESSION} onClose={selection.dismiss} />
-        <ComposerMinimizer destination={SESSION} expanded={visible} onExpandedChange={setExpanded}>
-          <ComposerAnnotations sessionId={SESSION} threadKey="main" />
+        {/* Room above the box for the comment chips floating over the content above it. */}
+        <div className="h-9" aria-hidden="true" />
+        <ComposerMinimizer
+          destination={SESSION}
+          expanded={visible}
+          onExpandedChange={setExpanded}
+          floating={<ComposerAnnotations sessionId={SESSION} threadKey="main" />}
+        >
           <div className="rounded-2xl border border-cc-border bg-cc-input-bg">
             <div hidden={!visible}>
               <img
