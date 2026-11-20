@@ -14,7 +14,7 @@ import { installUserActivityReporter } from "./utils/user-activity.js";
 import { installPortableSelectionCopy } from "./utils/copy-utils.js";
 import { purgeStoredDataThumbnails } from "./utils/image-thumbnail-load-memory.js";
 import { installTypingFeel } from "./scenic/typing-feel.js";
-import { getTypingEffectOn } from "./scenic/scenic-styles.js";
+import { getTypingEffectOn, getTypingThrow } from "./scenic/scenic-styles.js";
 import "./index.css";
 import "./scenic/scenic.css";
 import "./scenic/ink-textures.css";
@@ -26,7 +26,7 @@ installPressFeedback();
 installScrollbarVisibility();
 installUserActivityReporter();
 installPortableSelectionCopy();
-installTypingFeel(getTypingEffectOn);
+installTypingFeel(getTypingEffectOn, getTypingThrow);
 if (import.meta.env.DEV) {
   installBrowserPerfDebugHooks();
 }

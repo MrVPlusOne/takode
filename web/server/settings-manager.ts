@@ -21,7 +21,14 @@ import {
   type RemindLaterUnit,
 } from "../shared/remind-later-unit.js";
 import { DEFAULT_SEND_KEY_SCHEME, normalizeSendKeyScheme, type SendKeyScheme } from "../shared/send-key-scheme.js";
-import { DEFAULT_TYPING_EFFECT, normalizeTypingEffect, type TypingEffect } from "../shared/typing-effect.js";
+import {
+  DEFAULT_TYPING_EFFECT,
+  DEFAULT_TYPING_THROWS,
+  normalizeTypingEffect,
+  normalizeTypingThrows,
+  type TypingEffect,
+  type TypingThrows,
+} from "../shared/typing-effect.js";
 import { parseShortcutSettings, type ShortcutSettings } from "../shared/shortcut-settings.js";
 import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
 import { canonicalTimeZone } from "./server-time-zone.js";
@@ -126,6 +133,8 @@ export interface CompanionSettings {
   scenicBackground?: ScenicBackground;
   /** When chat inputs get the typing feel. Optional for backward-compatible tests/mocks. */
   typingEffect?: TypingEffect;
+  /** What each typed key throws in the light and the dark theme. Optional for backward-compatible tests/mocks. */
+  typingThrows?: TypingThrows;
   /** Which keys send or save in multi-line text boxes. Optional for backward-compatible tests/mocks. */
   sendKeyScheme?: SendKeyScheme;
   /** Legacy Codex leader context override retained for settings compatibility; new launches derive this internally. */
@@ -317,6 +326,7 @@ let settings: CompanionSettings = {
   chatMessageLineHeight: DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
   scenicBackground: "off",
   typingEffect: DEFAULT_TYPING_EFFECT,
+  typingThrows: DEFAULT_TYPING_THROWS,
   sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
   remindLaterUnit: DEFAULT_REMIND_LATER_UNIT,
   codexLeaderContextWindowOverrideTokens: 1_000_000,
@@ -590,6 +600,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
     scenicBackground: normalizeScenicBackground(raw?.scenicBackground),
     typingEffect: normalizeTypingEffect(raw?.typingEffect),
+    typingThrows: normalizeTypingThrows(raw?.typingThrows),
     sendKeyScheme: normalizeSendKeyScheme(raw?.sendKeyScheme),
     codexLeaderContextWindowOverrideTokens:
       typeof raw?.codexLeaderContextWindowOverrideTokens === "number" && raw.codexLeaderContextWindowOverrideTokens >= 1
@@ -754,6 +765,7 @@ export function updateSettings(
       | "chatMessageLineHeight"
       | "scenicBackground"
       | "typingEffect"
+      | "typingThrows"
       | "sendKeyScheme"
       | "codexLeaderContextWindowOverrideTokens"
       | "codexNonLeaderAutoCompactThresholdPercent"
@@ -801,6 +813,7 @@ export function updateSettings(
   if (defined.scenicBackground !== undefined)
     defined.scenicBackground = normalizeScenicBackground(defined.scenicBackground);
   if (defined.typingEffect !== undefined) defined.typingEffect = normalizeTypingEffect(defined.typingEffect);
+  if (defined.typingThrows !== undefined) defined.typingThrows = normalizeTypingThrows(defined.typingThrows);
   if (defined.workerSlotLimits) {
     defined.workerSlotLimits = normalizeWorkerSlotLimits(defined.workerSlotLimits);
   }

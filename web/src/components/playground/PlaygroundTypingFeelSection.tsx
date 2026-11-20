@@ -37,7 +37,7 @@ export function PlaygroundTypingFeelSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Typing Feel"
-        description="What every chat input (composers, side chats, comments and answers) does while you type with a scenic background on: the caret glows like forged iron, hotter the faster you type, the composer's edge glows warm, and every key throws a small burst out right of the caret: sparks at night, and by day a flake of gold leaf drifting out on the air and falling. The text box draws the text as always. A new answer arriving spreads in like ink on xuan paper."
+        description="What every chat input (composers, side chats, comments and answers) does while you type with a scenic background on: the caret glows like forged iron, hotter the faster you type, the composer's edge glows warm, and every key throws a small burst out right of the caret: sparks by default, or gold glints or gold leaf, chosen per theme in Settings > Appearance > Typing Effect. The text box draws the text as always. A new answer arriving spreads in like ink on xuan paper."
       >
         <div className="flex flex-wrap items-center gap-3">
           <button

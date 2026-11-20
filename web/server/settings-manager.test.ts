@@ -87,6 +87,7 @@ describe("settings-manager", () => {
       chatMessageLineHeight: 1.45,
       scenicBackground: "off",
       typingEffect: "scenic",
+      typingThrows: { light: "sparks", dark: "sparks" },
       sendKeyScheme: "enter",
       remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },
@@ -581,6 +582,20 @@ describe("settings-manager", () => {
     expect(getSettings().typingEffect).toBe("scenic");
   });
 
+  it("saves the throw for each theme and reads anything unknown as that theme's default", async () => {
+    // Sparks in both themes by default; a saved choice survives a reload, and an unknown one for a
+    // theme falls back to that theme's default without touching the other.
+    expect(getSettings().typingThrows).toEqual({ light: "sparks", dark: "sparks" });
+    updateSettings({ typingThrows: { light: "leaf", dark: "glints" } });
+    await _flushForTest();
+    _resetForTest(settingsPath);
+    expect(getSettings().typingThrows).toEqual({ light: "leaf", dark: "glints" });
+
+    writeFileSync(settingsPath, JSON.stringify({ typingThrows: { light: "petals", dark: "glints" } }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().typingThrows).toEqual({ light: "sparks", dark: "glints" });
+  });
+
   it("persists Questmaster compact sort across reloads", async () => {
     // Compact-table sort is server-owned so browser reloads and tabs converge.
     updateSettings({ questmasterCompactSort: { column: "feedback", direction: "desc" } });
@@ -820,6 +835,7 @@ describe("settings-manager", () => {
       chatMessageLineHeight: 1.45,
       scenicBackground: "off",
       typingEffect: "scenic",
+      typingThrows: { light: "sparks", dark: "sparks" },
       sendKeyScheme: "enter",
       remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },

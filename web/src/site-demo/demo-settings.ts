@@ -58,6 +58,7 @@ export const DEMO_SETTINGS = {
   chatMessageLineHeight: 1.45,
   scenicBackground: "off",
   typingEffect: "scenic",
+  typingThrows: { light: "sparks", dark: "sparks" },
   sendKeyScheme: "enter",
   codexLeaderContextWindowOverrideTokens: 1000000,
   codexNonLeaderAutoCompactThresholdPercent: 90,

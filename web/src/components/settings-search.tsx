@@ -60,7 +60,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       },
       {
         id: "typing-effect",
-        text: "Typing Effect caret glow gold leaf sparks typing animation chat input",
+        text: "Typing Effect caret glow sparks gold glints gold leaf typing animation chat input light dark theme preview try",
         aliases: ["typing", "caret", "sparks"],
       },
       { id: "zoom", text: "Zoom display scale text size" },

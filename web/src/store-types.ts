@@ -252,6 +252,13 @@ export interface AppState {
   typingEffect: import("../shared/typing-effect.js").TypingEffect;
   /** Saves the choice on the server, for every browser. */
   setTypingEffect: (effect: import("../shared/typing-effect.js").TypingEffect) => void;
+  /** What each typed key throws in the light and the dark theme; loaded from the server's settings. */
+  typingThrows: import("../shared/typing-effect.js").TypingThrows;
+  /** Saves the throw for one theme on the server, for every browser. */
+  setTypingThrow: (
+    theme: keyof import("../shared/typing-effect.js").TypingThrows,
+    choice: import("../shared/typing-effect.js").TypingThrow,
+  ) => void;
   /** Portrait pools collapsed in the leader portrait picker; loaded from the server's settings. */
   leaderProfileCollapsedPools: import("../shared/leader-profile-portraits.js").LeaderProfilePoolId[];
   /** Collapses or expands one pool and saves the choice on the server, so every device shows the same. */

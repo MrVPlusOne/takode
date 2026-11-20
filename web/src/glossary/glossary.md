@@ -56,7 +56,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 - **Universal Search**: finds threads by name, sessions, quests and messages, including everything you wrote.
 - **Message box**: where you type to a session; side chats, comments and answers to questions use the same box. It shows basic Markdown and quest and session links as you type, while sending exactly the text you typed. Cmd/Ctrl+click a link to open it. Settings > Appearance > Message Box switches it to plain text.
 - **Scenic background**: an optional painted landscape behind the conversation (Summer Meadow, Seaside Town or Ink & Paper), with a night version for the dark theme. Pick it in Settings > Appearance; it is off unless you turn it on.
-- **Typing effect**: while you type, the caret glows like hot iron and each key throws a flake of gold leaf by day or sparks at night. By default it plays only with a scenic background; Settings > Appearance > Typing Effect can turn it off or on always.
+- **Typing effect**: while you type, the caret glows like hot iron and each key throws a small burst: sparks, gold glints or gold leaf, chosen for the light and the dark theme separately. By default it plays only with a scenic background. Settings > Appearance > Typing Effect sets when it plays and what it throws, with a box to try each.
 - **Coordinator and hosts**: the Takode server you open keeps all sessions, quests and memory; other machines run `takode node` to host sessions near their files.
 
 ## Common workflows

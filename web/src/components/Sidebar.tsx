@@ -18,7 +18,7 @@ import {
 } from "../store.js";
 import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
-import { normalizeTypingEffect } from "../../shared/typing-effect.js";
+import { normalizeTypingEffect, normalizeTypingThrows } from "../../shared/typing-effect.js";
 import { parseDiagnosticsSettings } from "../../shared/diagnostics-settings.js";
 import { normalizeRemindLaterUnit } from "../../shared/remind-later-unit.js";
 import { normalizeLeaderProfileCollapsedPools } from "../../shared/leader-profile-portraits.js";
@@ -291,6 +291,7 @@ export function Sidebar({
           sidebarViewMode: normalizeSidebarViewMode(s.sidebarViewMode),
           scenicBackground: normalizeScenicBackground(s.scenicBackground),
           typingEffect: normalizeTypingEffect(s.typingEffect),
+          typingThrows: normalizeTypingThrows(s.typingThrows),
           leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(s.leaderProfileCollapsedPools),
           remindLaterUnit: normalizeRemindLaterUnit(s.remindLaterUnit),
         });

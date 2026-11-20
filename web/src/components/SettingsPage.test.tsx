@@ -1435,7 +1435,7 @@ describe("SettingsPage", () => {
     expect(mockState.setColorTheme).toHaveBeenCalledWith("system");
   });
 
-  it("chooses when the typing effect plays: off, with a scenic background, or always", async () => {
+  it("chooses when the typing effect plays and what it throws in each theme, with a box to try each", async () => {
     // The default plays it only with a scenic background; Always plays it on the plain theme too.
     render(<SettingsPage />);
     await waitForSettingsPage();
@@ -1444,6 +1444,20 @@ describe("SettingsPage", () => {
     expect(within(effect).getByRole("radio", { name: "With Background" })).toHaveAttribute("aria-checked", "true");
     fireEvent.click(within(effect).getByRole("radio", { name: "Always" }));
     expect(mockState.setTypingEffect).toHaveBeenCalledWith("always");
+
+    // Each theme has its own throw, sparks by default.
+    const light = screen.getByLabelText("Light theme") as HTMLSelectElement;
+    expect(light.value).toBe("sparks");
+    fireEvent.change(light, { target: { value: "leaf" } });
+    expect(mockState.setTypingThrow).toHaveBeenCalledWith("light", "leaf");
+    fireEvent.change(screen.getByLabelText("Dark theme"), { target: { value: "glints" } });
+    expect(mockState.setTypingThrow).toHaveBeenCalledWith("dark", "glints");
+
+    // A preview box per theme, drawn in that theme, throwing that theme's choice.
+    const preview = screen.getByLabelText("Try the typing effect in the dark theme");
+    expect(preview).toHaveAttribute("data-typing-preview");
+    expect(preview).toHaveAttribute("data-typing-throw", "sparks");
+    expect(preview.closest("[data-typing-theme]")).toHaveAttribute("data-typing-theme", "dark");
   });
 
   it("updates chat message line height through server settings", async () => {

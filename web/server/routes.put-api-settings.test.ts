@@ -1352,6 +1352,30 @@ describe("PUT /api/settings", () => {
     expect(await bad.json()).toEqual({ error: 'typingEffect must be "off", "scenic" or "always"' });
   });
 
+  it("saves the throw for each theme, and refuses an unknown one", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      typingThrows: { light: "leaf", dark: "glints" },
+      updatedAt: Date.now(),
+    });
+    const put = (typingThrows: unknown) =>
+      app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ typingThrows }),
+      });
+
+    const res = await put({ light: "leaf", dark: "glints" });
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ typingThrows: { light: "leaf", dark: "glints" } }),
+    );
+    expect((await res.json()).typingThrows).toEqual({ light: "leaf", dark: "glints" });
+
+    const bad = await put({ light: "petals", dark: "sparks" });
+    expect(bad.status).toBe(400);
+  });
+
   it("returns 400 for an unknown scenic background", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",

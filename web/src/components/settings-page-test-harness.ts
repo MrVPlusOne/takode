@@ -25,6 +25,7 @@ export interface MockStoreState {
   chatMessageLineHeight: number;
   scenicBackground: "off" | "meadow" | "seaside" | "ink";
   typingEffect: "off" | "scenic" | "always";
+  typingThrows: { light: "sparks" | "glints" | "leaf"; dark: "sparks" | "glints" | "leaf" };
   sendKeyScheme: "enter" | "mod-enter";
   diagnostics: { inputTrace: boolean };
   shortcutSettings: {
@@ -51,6 +52,7 @@ export interface MockStoreState {
   setChatMessageLineHeight: ReturnType<typeof vi.fn>;
   setScenicBackground: ReturnType<typeof vi.fn>;
   setTypingEffect: ReturnType<typeof vi.fn>;
+  setTypingThrow: ReturnType<typeof vi.fn>;
   setSendKeyScheme: ReturnType<typeof vi.fn>;
   setDiagnostics: ReturnType<typeof vi.fn>;
   setShortcutsEnabled: ReturnType<typeof vi.fn>;
@@ -76,6 +78,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     chatMessageLineHeight: 1.45,
     scenicBackground: "off",
     typingEffect: "scenic",
+    typingThrows: { light: "sparks", dark: "sparks" },
     sendKeyScheme: "enter",
     diagnostics: { inputTrace: false },
     shortcutSettings: {
@@ -97,6 +100,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     setChatMessageLineHeight: vi.fn(),
     setScenicBackground: vi.fn(),
     setTypingEffect: vi.fn(),
+    setTypingThrow: vi.fn(),
     setSendKeyScheme: vi.fn(),
     setDiagnostics: vi.fn(),
     setShortcutsEnabled: vi.fn(),

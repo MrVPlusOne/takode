@@ -696,6 +696,7 @@ export interface AppSettings {
   chatMessageLineHeight?: number;
   scenicBackground?: import("../shared/scenic-background.js").ScenicBackground;
   typingEffect?: import("../shared/typing-effect.js").TypingEffect;
+  typingThrows?: import("../shared/typing-effect.js").TypingThrows;
   sendKeyScheme?: SendKeyScheme;
   codexLeaderContextWindowOverrideTokens: number;
   codexNonLeaderAutoCompactThresholdPercent?: number;
@@ -1402,6 +1403,7 @@ export const api = {
     chatMessageLineHeight?: number;
     scenicBackground?: import("../shared/scenic-background.js").ScenicBackground;
     typingEffect?: import("../shared/typing-effect.js").TypingEffect;
+    typingThrows?: import("../shared/typing-effect.js").TypingThrows;
     sendKeyScheme?: SendKeyScheme;
     codexLeaderContextWindowOverrideTokens?: number;
     codexNonLeaderAutoCompactThresholdPercent?: number;

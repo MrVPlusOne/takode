@@ -57,6 +57,11 @@ function typingEffectOn({ typingEffect, scenicBackground }: { typingEffect: stri
   return typingEffect === "always" || (typingEffect === "scenic" && scenicBackground !== "off");
 }
 
+/** What each typed key throws in the light or the dark theme (Settings > Appearance > Typing Effect). */
+export function getTypingThrow(dark: boolean): import("../../shared/typing-effect.js").TypingThrow {
+  return useStore.getState().typingThrows[dark ? "dark" : "light"];
+}
+
 /** Puts the classes for `background` on <html>, removing any other style's. */
 export function applyScenicClass(background: ScenicBackground): void {
   const root = document.documentElement;

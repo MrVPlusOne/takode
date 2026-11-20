@@ -61,7 +61,12 @@ import {
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
 import { isSendKeyScheme, normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
-import { isTypingEffect, normalizeTypingEffect } from "../../shared/typing-effect.js";
+import {
+  isTypingEffect,
+  isTypingThrow,
+  normalizeTypingEffect,
+  normalizeTypingThrows,
+} from "../../shared/typing-effect.js";
 import { normalizeRemindLaterUnit } from "../../shared/remind-later-unit.js";
 import {
   CLAUDE_1M_CONTEXT_TOKENS,
@@ -1096,6 +1101,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
       scenicBackground: normalizeScenicBackground(settings.scenicBackground),
       typingEffect: normalizeTypingEffect(settings.typingEffect),
+      typingThrows: normalizeTypingThrows(settings.typingThrows),
       sendKeyScheme: normalizeSendKeyScheme(settings.sendKeyScheme),
       codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
       ...(typeof settings.codexNonLeaderAutoCompactThresholdPercent === "number"
@@ -1333,6 +1339,17 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.typingEffect !== undefined && !isTypingEffect(body.typingEffect)) {
       return c.json({ error: 'typingEffect must be "off", "scenic" or "always"' }, 400);
     }
+    if (
+      body.typingThrows !== undefined &&
+      !(
+        body.typingThrows &&
+        typeof body.typingThrows === "object" &&
+        isTypingThrow(body.typingThrows.light) &&
+        isTypingThrow(body.typingThrows.dark)
+      )
+    ) {
+      return c.json({ error: 'typingThrows must be { light, dark }, each "sparks", "glints" or "leaf"' }, 400);
+    }
     if (body.questmasterCompactSort !== undefined) {
       if (
         typeof body.questmasterCompactSort !== "object" ||
@@ -1507,6 +1524,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "chatMessageLineHeight",
       "scenicBackground",
       "typingEffect",
+      "typingThrows",
       "sendKeyScheme",
       "codexLeaderContextWindowOverrideTokens",
       "codexNonLeaderAutoCompactThresholdPercent",
@@ -1563,6 +1581,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         : {}),
       scenicBackground: isScenicBackground(body.scenicBackground) ? body.scenicBackground : undefined,
       typingEffect: isTypingEffect(body.typingEffect) ? body.typingEffect : undefined,
+      typingThrows: body.typingThrows === undefined ? undefined : normalizeTypingThrows(body.typingThrows),
       sendKeyScheme: isSendKeyScheme(body.sendKeyScheme) ? body.sendKeyScheme : undefined,
       codexLeaderContextWindowOverrideTokens:
         typeof body.codexLeaderContextWindowOverrideTokens === "number"

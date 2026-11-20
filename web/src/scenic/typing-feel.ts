@@ -1,8 +1,9 @@
 /**
  * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
  * red through orange to white-gold, while the composer's edge glows warm and every key throws a
- * small burst out right of the caret: sparks from the forge at night, and by day a flake of gold
- * leaf drifting out on the air and falling. The text box draws its text and caret itself, exactly
+ * small burst out right of the caret, chosen for each theme: sparks from the forge (vermilion on
+ * paper by day), gold glints (small flashing stars), or a flake of gold leaf drifting out on the
+ * air and falling. The text box draws its text and caret itself, exactly
  * as without a feel: nothing here renders text, hides the caret or touches the text's position or
  * weight. Each part only colours the native caret or draws around it.
  *
@@ -21,6 +22,7 @@ import { ballisticPath } from "../components/completion-celebration.js";
 import { splitTrailingTranscriptionTag } from "../../shared/transcription-tag.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
 import { domPointAt, type RichTextBoxElement } from "../components/rich-text-box.js";
+import { DEFAULT_TYPING_THROWS, type TypingThrow } from "../../shared/typing-effect.js";
 
 /** Marks a text box as a chat input, which gets the typing feel and the composing-text fix. */
 export const CHAT_INPUT_ATTRIBUTE = "data-chat-input";
@@ -31,15 +33,25 @@ const RICH_TEXT_ATTRIBUTE = "data-rich-text-box";
 type TextField = HTMLTextAreaElement | RichTextBoxElement;
 /** On a chat input while an input method (pinyin) is composing text not yet committed. */
 export const COMPOSING_ATTRIBUTE = "data-composing";
+/**
+ * On a chat input that previews an effect (Settings): it gets the feel whatever the Typing Effect
+ * setting, throwing what its `data-typing-throw` names, in the theme of its closest
+ * `data-typing-theme` (`light` or `dark`).
+ */
+export const PREVIEW_ATTRIBUTE = "data-typing-preview";
+
+/** Which throw a box gets in the light or the dark theme. */
+export type ThrowChoice = (dark: boolean) => TypingThrow;
 
 /**
  * Gives every chat input (a text box marked with `data-chat-input`) its typing feel while it has
- * focus and `effectOn()` says so (the Typing Effect setting), and marks it `data-composing` while an input method is
- * composing, whatever the background (the stylesheet keeps composing pinyin readable at night).
- * One place for every chat input: the composers, side chats, comments and answers. Returns a stop
+ * focus and `effectOn()` says so (the Typing Effect setting), throwing what `choice` picks for the
+ * theme, and marks it `data-composing` while an input method is composing, whatever the
+ * background (the stylesheet keeps composing pinyin readable at night). One place for every chat
+ * input: the composers, side chats, comments, answers and the Settings preview. Returns a stop
  * function.
  */
-export function installTypingFeel(effectOn: () => boolean): () => void {
+export function installTypingFeel(effectOn: () => boolean, choice: ThrowChoice = defaultChoice): () => void {
   let running: { area: TextField; handle: TypingFeelHandle } | null = null;
   const chatInput = (target: EventTarget | null): TextField | null => {
     if (!(target instanceof HTMLElement) || !target.hasAttribute(CHAT_INPUT_ATTRIBUTE)) return null;
@@ -50,7 +62,9 @@ export function installTypingFeel(effectOn: () => boolean): () => void {
     const area = chatInput(event.target);
     if (!area || running?.area === area) return;
     running?.handle.stop();
-    running = effectOn() ? { area, handle: attachTypingFeel(area) } : null;
+    const preview = area.getAttribute(PREVIEW_ATTRIBUTE) !== null;
+    const previewed = () => (area.dataset.typingThrow ?? "sparks") as TypingThrow;
+    running = preview || effectOn() ? { area, handle: attachTypingFeel(area, preview ? previewed : choice) } : null;
   };
   const left = (event: Event) => {
     if (!running || event.target !== running.area) return;
@@ -83,15 +97,16 @@ export interface TypingFeelHandle {
 /**
  * Gives `area` the typing feel. Marks are drawn in its containing block (where its absolutely
  * positioned children would sit); the warm edge glows around the closest `[data-typing-frame]`,
- * and without one there is no edge. Does nothing with reduced motion.
+ * and without one there is no edge. `choice` picks what each key throws in the light or the dark
+ * theme. Does nothing with reduced motion.
  */
-export function attachTypingFeel(area: TextField): TypingFeelHandle {
+export function attachTypingFeel(area: TextField, choice: ThrowChoice = defaultChoice): TypingFeelHandle {
   const host = area.offsetParent instanceof HTMLElement ? area.offsetParent : area.parentElement;
   if (!scenicMotionAllowed() || !host) return { stop() {} };
-  const box = new TypingBox(area, host);
+  const box = new TypingBox(area, host, choice);
   const frame = area.closest<HTMLElement>("[data-typing-frame]");
   const parts: Part[] = [
-    glowingCaret(box, forgeColour),
+    glowingCaret(box, (warmth) => forgeColour(warmth, box.dark)),
     throwing(box, frame),
     ...(frame ? [warmEdge(box, frame)] : []),
   ];
@@ -102,6 +117,10 @@ export function attachTypingFeel(area: TextField): TypingFeelHandle {
     });
   });
   return { stop: () => box.stop() };
+}
+
+function defaultChoice(dark: boolean): TypingThrow {
+  return DEFAULT_TYPING_THROWS[dark ? "dark" : "light"];
 }
 
 /** How warm the typing is: each key adds one, and it cools by half every this many ms. */
@@ -137,6 +156,7 @@ class TypingBox {
   constructor(
     readonly area: TextField,
     readonly host: HTMLElement,
+    readonly choice: ThrowChoice,
   ) {
     const style = getComputedStyle(area);
     this.lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.4;
@@ -162,15 +182,24 @@ class TypingBox {
   }
 
   /**
+   * Whether the box is dark: the page's theme, or, for a preview, the theme it shows (the closest
+   * `data-typing-theme`).
+   */
+  get dark(): boolean {
+    const shown = this.area.closest<HTMLElement>("[data-typing-theme]")?.dataset.typingTheme;
+    return shown ? shown === "dark" : document.documentElement.classList.contains("dark");
+  }
+
+  /**
    * The vermilion of the scenic seal, by day or by night, in a scenic background; on the plain theme
-   * (Typing Effect set to Always), the theme's own accent, so the edge matches its buttons.
+   * (Typing Effect set to Always) and in a preview, the theme's own accent, so the edge matches its
+   * buttons.
    */
   private readColours(): void {
     const root = document.documentElement;
-    const dark = root.classList.contains("dark");
-    this.scenic = root.classList.contains("scenic");
+    this.scenic = root.classList.contains("scenic") && !this.area.closest("[data-typing-theme]");
     if (!this.scenic) this.edgeColour = "var(--color-cc-primary)";
-    else this.edgeColour = dark ? "#ef6a4f" : "#c8382c";
+    else this.edgeColour = this.dark ? "#ef6a4f" : "#c8382c";
   }
 
   /**
@@ -504,8 +533,7 @@ const FADE_IN_MS = 30;
 const FAST_GAP_MS = 150;
 
 /** Iron in the forge, by warmth: dark red, red, orange, then white-gold (gold on light paper). */
-function forgeColour(warmth: number): string {
-  const dark = document.documentElement.classList.contains("dark");
+function forgeColour(warmth: number, dark: boolean): string {
   const stops = dark ? ["#7a2414", "#d2441e", "#ff8a26", "#fff1c2"] : ["#6e1c10", "#c23a1e", "#e8721c", "#f0aa22"];
   const at = Math.min(1, Math.max(0, warmth)) * (stops.length - 1);
   const from = Math.min(stops.length - 2, Math.floor(at));
@@ -535,6 +563,8 @@ interface Kind {
   flips?: number;
   /** Filters at even points of the flight (sparks cool from white-gold to red). */
   filter?: string[];
+  /** How far right of the caret it starts, in px (6 by default), so it never sits on a letter. */
+  lead?: number;
 }
 
 /** Thrown on the arc the completion celebration's sparks fly (`ballisticPath`). */
@@ -595,7 +625,7 @@ function spark(index: number): Kind {
     style: {
       borderRadius: streak ? "1px" : "50%",
       background: "#ffa640",
-      boxShadow: `0 0 2px 0.5px ${forgeColour(0.65)}`,
+      boxShadow: `0 0 2px 0.5px ${forgeColour(0.65, true)}`,
     },
     life: [260, 380],
     path: { angle: [-1.0, -0.35], lowAngle: [-0.3, 0.1], speed: [42, 70], gravity: 60, along: streak },
@@ -605,7 +635,7 @@ function spark(index: number): Kind {
   };
 }
 
-/** By day, one flake of gold leaf a key, drifting out on the air and settling under the line. */
+/** One flake of gold leaf a key, drifting out on the air and settling under the line. */
 const GOLD_LEAF: Kind = {
   burst: [1, 1],
   size: [8.5, 6.5],
@@ -637,9 +667,95 @@ const PLAIN_GOLD_LEAF: Kind = {
 };
 
 /**
+ * By day, sparks struck on paper: the forge's kinetics (two or three flung up and right, burning out
+ * in about a third of a second) in deep vermilion and orange with crisp edges, since a soft glow on
+ * light paper reads as a smudge. They cool to a darker red as they fly; one in six is a small ember
+ * that floats on farther.
+ */
+function daySpark(index: number): Kind {
+  const night = spark(index);
+  const ember = index % 6 === 5;
+  const streak = index % 3 === 0;
+  return {
+    ...night,
+    burst: [2, 3],
+    size: ember ? [3.4, 3.4] : streak ? [8, 2] : [3.4, 3.4],
+    style: {
+      borderRadius: streak ? "1px" : "50%",
+      // Solid, saturated vermilion with a hot gold core: on paper colour does what the glow does
+      // at night, and a soft glow or a darker rim read as a smudge or a ring.
+      background: streak
+        ? "linear-gradient(90deg, #d23a18, #f2601e 50%, #ffc35a)"
+        : "radial-gradient(circle, #ffa040 0 30%, #f05a1c 65%, #d0381a)",
+    },
+    // A little flatter and farther out than at night: vermilion over a letter typed next shows
+    // on paper where a dim spark at night does not.
+    path: { ...(night.path as Thrown), angle: [-0.85, -0.3] },
+    lead: 8,
+    // Each dies by shrinking to nothing while still saturated: fading out over cream paper turned
+    // the dying sparks into pale pink specks, which read as dust.
+    opacity: [0, 1, 1, 1, 1, 1],
+    scale: ember ? [1, 0.95, 0.85, 0.7, 0.45, 0] : [1, 1, 0.9, 0.7, 0.4, 0],
+    filter: ember
+      ? [
+          "brightness(1.1)",
+          "brightness(1)",
+          "saturate(1.2) hue-rotate(-6deg)",
+          "brightness(0.8) saturate(1.4) hue-rotate(-14deg)",
+        ]
+      : [
+          "brightness(1.15)",
+          "brightness(1.05)",
+          "brightness(0.95) saturate(1.2) hue-rotate(-8deg)",
+          "brightness(0.8) saturate(1.4) hue-rotate(-16deg)",
+        ],
+  };
+}
+
+/** A four-point star, like a glint of light on metal. */
+const STAR = "polygon(50% 0%, 64% 36%, 100% 50%, 64% 64%, 50% 100%, 36% 64%, 0% 50%, 36% 36%)";
+
+/**
+ * Gold glints, day or night: two small four-point stars of gold flung up and right like sparks, each
+ * flashing bright as it leaves, turning, and shrinking to nothing in under half a second.
+ */
+function glint(index: number, dark: boolean): Kind {
+  const big = index % 3 === 0;
+  const side = big ? 12 : 9;
+  return {
+    burst: [2, 2],
+    size: [side, side],
+    style: {
+      clipPath: STAR,
+      // On paper the gold needs a deep amber edge to show; at night a paler gold glows by itself.
+      background: dark
+        ? "radial-gradient(circle, #fff6d6 0 10%, #ffd05a 32%, #f0a52a 62%)"
+        : "radial-gradient(circle, #fffaf0 0 10%, #ffc23a 30%, #e8900f 55%, #b5640a 85%)",
+    },
+    life: [360, 500],
+    // Flatter and farther than a spark: a star is wider, and steep throws hung over the letters
+    // typed next.
+    path: { angle: [-0.75, -0.2], lowAngle: [-0.3, 0.1], speed: [55, 85], gravity: 40, flung: true },
+    opacity: [0, 1, 1, 0.95, 0.6, 0],
+    scale: [0.3, 1.15, 1, 0.8, 0.55, 0.25],
+    spin: [60, 160],
+    filter: ["brightness(1.35)", "brightness(1.1)", "brightness(1)", "brightness(0.95)"],
+    // A star is wider than a spark: it starts clear of the caret and the letters typed next.
+    lead: 14,
+  };
+}
+
+/** How each throw looks by day and by night. Gold leaf is finer on the plain light theme. */
+const THROWS: Record<TypingThrow, (index: number, dark: boolean, scenic: boolean) => Kind> = {
+  sparks: (index, dark) => (dark ? spark(index) : daySpark(index)),
+  glints: glint,
+  leaf: (_index, dark, scenic) => (dark || scenic ? GOLD_LEAF : PLAIN_GOLD_LEAF),
+};
+
+/**
  * Every key that types something throws one small burst out right of the caret, so typing and
- * effect match one to one: sparks from the forge at night, a flake of gold leaf by day, all of a
- * burst leaving together. It never covers the next character, and nothing is thrown when the
+ * effect match one to one: sparks, glints or a flake of gold leaf, whichever the theme's choice,
+ * all of a burst leaving together. It never covers the next character, and nothing is thrown when the
  * caret's line goes on after it (typing mid-line), since it would cross that text; the caret's
  * glow and the edge still answer each key. On a later line of a message sparks fly flat or fall,
  * so they never cross the line above. Everything fades out before the edges of its room: the text
@@ -668,12 +784,20 @@ function throwing(box: TypingBox, frame: HTMLElement | null): Part {
     const space = box.space(frame);
     // Text on a later line (typing at the end of an earlier line): things fade out above it.
     if (nextText !== null) space.bottom = Math.min(space.bottom, nextText);
-    const dark = document.documentElement.classList.contains("dark");
-    const look = dark ? "night" : box.scenic ? "day" : "plain day";
+    const { dark, scenic } = box;
+    const chosen = box.choice(dark);
+    const look = `${chosen} ${dark ? "night" : "day"} ${scenic ? "scenic" : "plain"}`;
     if (look !== drawnFor) {
       drawnFor = look;
+      // Marks in flight belong to the old look; each mark's old look is cleared (a leaf's clip-path
+      // left on a spark cut it to nothing).
+      for (const [mark, flight] of flying) {
+        flight.cancel();
+        flying.delete(mark);
+      }
       kinds = pool.map((mark, index) => {
-        const kind = dark ? spark(index) : box.scenic ? GOLD_LEAF : PLAIN_GOLD_LEAF;
+        const kind = THROWS[chosen](index, dark, scenic);
+        Object.assign(mark.style, { clipPath: "", borderRadius: "", background: "", boxShadow: "" });
         const [width, height] = kind.size;
         Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style });
         return kind;
@@ -694,7 +818,7 @@ function throwing(box: TypingBox, frame: HTMLElement | null): Part {
         }
         const mark = free[Math.floor(Math.random() * free.length)]!;
         const kind = kinds[pool.indexOf(mark)]!;
-        const start = { x: x + 6, y: y + lineHeight * 0.45 - kind.size[1] / 2 };
+        const start = { x: x + (kind.lead ?? 6), y: y + lineHeight * 0.45 - kind.size[1] / 2 };
         const { path } = kind;
         const drifts = "reach" in path;
         const flight = mark.animate(keyframes(kind, start, line > 0, space), {

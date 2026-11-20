@@ -8,6 +8,7 @@
  * and time is faked.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TypingThrow } from "../../shared/typing-effect.js";
 import { attachTypingFeel, installTypingFeel, type TypingFeelHandle } from "./typing-feel.js";
 
 let handle: TypingFeelHandle = { stop() {} };
@@ -152,7 +153,7 @@ describe("typing feel", () => {
     Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
     Object.defineProperty(document.getElementById("frame")!, "offsetHeight", { configurable: true, value: 64 });
     Object.defineProperty(document.getElementById("frame")!, "offsetWidth", { configurable: true, value: 400 });
-    handle = attachTypingFeel(area);
+    handle = attachTypingFeel(area, () => "leaf");
     input(area, "a");
     paint();
     expect(animate.mock.calls.length).toBe(1);
@@ -178,7 +179,7 @@ describe("typing feel", () => {
       const index = animate.mock.calls.length - 1;
       return { onfinish: null, cancel() {}, updatePlaybackRate: () => hurried.push(index) } as unknown as Animation;
     });
-    handle = attachTypingFeel(area);
+    handle = attachTypingFeel(area, () => "leaf");
     for (let i = 0; i < 6; i++) {
       input(area, "a");
       paint();
@@ -205,7 +206,7 @@ describe("typing feel", () => {
     size(button, 400, 30);
     button.getBoundingClientRect = () =>
       ({ left: 0, top: 30, right: 400, bottom: 60, width: 400, height: 30 }) as DOMRect;
-    handle = attachTypingFeel(area);
+    handle = attachTypingFeel(area, () => "leaf");
     input(area, "a");
     paint();
     const keyframes = animate.mock.calls[0]![0] as Keyframe[];
@@ -218,16 +219,59 @@ describe("typing feel", () => {
     }
   });
 
-  it("gives the gold leaf the day by default", () => {
+  it("throws sparks in both themes by default, and the throw chosen for each theme", () => {
+    // Sparks by day and at night unless the user picks another throw for a theme.
     const area = box();
-    Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
     handle = attachTypingFeel(area);
     input(area, "a");
     paint();
-    // One flake a key, drifting (its time is in its keyframes, so it runs at an even pace).
-    expect(animate.mock.calls.length).toBe(1);
-    expect((animate.mock.calls[0]![1] as KeyframeAnimationOptions).easing).toBe("linear");
-    expect((animate.mock.calls[0]![0] as Keyframe[]).length).toBeGreaterThan(6);
+    // A burst of round sparks and streaks, none of them a leaf or a star.
+    expect(animate.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const drawn = [...document.querySelectorAll<HTMLElement>("#host > div[aria-hidden]")].filter(
+      (m) => m.style.background,
+    );
+    expect(drawn.some((mark) => mark.style.borderRadius === "50%")).toBe(true);
+    expect(drawn.some((mark) => mark.style.clipPath)).toBe(false);
+    handle.stop();
+
+    // Gold glints by day, sparks at night: the light theme gets the stars.
+    const chosen = (dark: boolean): TypingThrow => (dark ? "sparks" : "glints");
+    animate.mockClear();
+    handle = attachTypingFeel(area, chosen);
+    input(area, "b");
+    paint();
+    const marks = () => [...document.querySelectorAll<HTMLElement>("#host > div[aria-hidden]")];
+    expect(marks().some((mark) => mark.style.clipPath.startsWith("polygon(50% 0%"))).toBe(true);
+
+    // At night the same box switches to sparks, and no mark keeps a star's clip-path.
+    document.documentElement.classList.add("dark");
+    vi.advanceTimersByTime(1500);
+    input(area, "c");
+    paint();
+    expect(marks().some((mark) => mark.style.clipPath)).toBe(false);
+    document.documentElement.classList.remove("dark");
+  });
+
+  it("previews a throw in the theme its box shows, whatever the page's theme and the setting", () => {
+    // The Settings preview: a box in the dark theme on a light page, with the effect turned off.
+    document.body.innerHTML =
+      '<div id="frame" data-typing-frame data-typing-theme="dark"><div id="host" style="position:relative"><textarea data-chat-input data-typing-preview data-typing-throw="glints"></textarea></div></div>';
+    const uninstall = installTypingFeel(() => false);
+    const area = box();
+    area.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input(area, "a");
+    paint();
+    const marks = [...document.querySelectorAll<HTMLElement>("#host > div[aria-hidden]")];
+    expect(marks.some((mark) => mark.style.clipPath.startsWith("polygon(50% 0%"))).toBe(true);
+    // Its caret glows in the night forge colours, not the day's of the page around it.
+    const night = area.style.caretColor;
+    area.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    document.getElementById("frame")!.dataset.typingTheme = "light";
+    area.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input(area, "b");
+    paint();
+    expect(area.style.caretColor).not.toBe(night);
+    uninstall();
   });
 
   it("fades thrown things out before they leave the text box", () => {
@@ -332,7 +376,7 @@ describe("typing feel", () => {
     // read as pink on a white box, and the scenic flake read as a crumb on white.
     document.documentElement.classList.remove("scenic");
     const area = box();
-    handle = attachTypingFeel(area);
+    handle = attachTypingFeel(area, () => "leaf");
     input(area, "a");
     paint();
     const edge = document.querySelector<HTMLElement>("#frame > div[aria-hidden]")!;
@@ -343,7 +387,7 @@ describe("typing feel", () => {
 
     // In a scenic background the edge and the leaf stay as they were.
     document.documentElement.classList.add("scenic");
-    handle = attachTypingFeel(area);
+    handle = attachTypingFeel(area, () => "leaf");
     input(area, "b");
     paint();
     expect(document.querySelector<HTMLElement>("#frame > div[aria-hidden]")!.style.boxShadow).not.toContain("inset");
