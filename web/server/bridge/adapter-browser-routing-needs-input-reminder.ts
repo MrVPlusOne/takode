@@ -1,9 +1,4 @@
-import type {
-  BrowserIncomingMessage,
-  BrowserOutgoingMessage,
-  PendingCodexInput,
-  SessionNotification,
-} from "../session-types.js";
+import type { BrowserIncomingMessage, BrowserOutgoingMessage, PendingCodexInput } from "../session-types.js";
 import type {
   AdapterBrowserRoutingDeps,
   AdapterBrowserRoutingSessionLike,
@@ -24,44 +19,6 @@ function formatReminderSummary(summary: string | undefined): string {
 
 function formatResolutionSource(source: "manual" | "response" | undefined): string {
   return source === "response" ? "answered in notification UI" : "resolved outside the agent";
-}
-
-function extractReminderNotificationInfo(reminderText: string): { referencedIds: string[]; totalCount: number | null } {
-  let totalCount: number | null = null;
-  const ids: string[] = [];
-  for (const line of reminderText.split(/\r?\n/)) {
-    const totalMatch =
-      /^Unresolved same-session(?: same-thread)? needs-input notifications(?: \([^)]+\))?: (\d+)\./.exec(line.trim());
-    if (totalMatch) {
-      totalCount = Number.parseInt(totalMatch[1], 10);
-      continue;
-    }
-    const match = /^\s*(n-\d+|\d+)\.\s+/.exec(line);
-    if (!match) continue;
-    ids.push(match[1].startsWith("n-") ? match[1] : `n-${Number.parseInt(match[1], 10)}`);
-  }
-  return { referencedIds: ids, totalCount };
-}
-
-export function shouldCommitNeedsInputReminderHistoryEntry(
-  reminderText: string,
-  notifications: ReadonlyArray<SessionNotification> | undefined,
-): boolean {
-  const { referencedIds, totalCount } = extractReminderNotificationInfo(reminderText);
-  if (referencedIds.length === 0) return true;
-  if (totalCount !== null && totalCount > referencedIds.length) return true;
-
-  let knownCount = 0;
-  for (const notificationId of referencedIds) {
-    const notification = notifications?.find(
-      (entry) => entry.id === notificationId && entry.category === "needs-input",
-    );
-    if (!notification) continue;
-    knownCount += 1;
-    if (!notification.done) return true;
-  }
-
-  return knownCount !== referencedIds.length;
 }
 
 export function buildNeedsInputReminderTextForDirectUserMessage(
@@ -151,27 +108,6 @@ export function buildNeedsInputResolutionNoticeForDirectUserMessage(
     ].join("\n"),
     notificationIds: visible.map((notification) => notification.id),
     threadRoute: messageRoute,
-  };
-}
-
-export function buildNeedsInputReminderHistoryEntry(
-  reminderText: string,
-  timestamp: number,
-  idSuffix: string | number = timestamp,
-  threadRoute?: ThreadRouteMetadata,
-): Extract<BrowserIncomingMessage, { type: "user_message" }> {
-  return {
-    type: "user_message",
-    content: reminderText,
-    timestamp,
-    id: `needs-input-reminder-${idSuffix}`,
-    ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),
-    ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
-    ...(threadRoute?.threadRefs?.length ? { threadRefs: threadRoute.threadRefs } : {}),
-    agentSource: {
-      sessionId: "system:needs-input-reminder",
-      sessionLabel: "Needs Input Reminder",
-    },
   };
 }
 

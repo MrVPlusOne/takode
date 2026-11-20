@@ -20,12 +20,6 @@ import type {
 import { sessionTag } from "../session-tag.js";
 import { getTakodeHerdEventBrowserMetadata } from "../herd-event-browser-metadata.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
-import {
-  buildNeedsInputReminderHistoryEntry,
-  commitQueuedNeedsInputResolutionNoticeHistoryEntry,
-  restoreQueuedNeedsInputResolutionNotices,
-  shouldCommitNeedsInputReminderHistoryEntry,
-} from "./adapter-browser-routing-needs-input-reminder.js";
 import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
 import {
   isActualHumanUserInput,

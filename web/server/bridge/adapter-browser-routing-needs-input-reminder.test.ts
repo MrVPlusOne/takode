@@ -18,7 +18,6 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
-  BrowserIncomingMessage,
   BrowserOutgoingMessage,
   CodexOutboundTurn,
   PermissionRequest,
@@ -536,7 +535,8 @@ describe("direct user needs-input reminders", () => {
   });
 
   it("injects a reminder before direct user messages with pending same-session needs-input notifications", async () => {
-    // Validates both visible browser history ordering and backend delivery text.
+    // The reminder goes to the leader with the message, newest open questions first. The feed gets
+    // no copy: the user already sees those questions as "Needs you" items (Jiayi, Nov 19, 2026).
     const session = makeSession([
       needsInput("n-1", "Oldest pending question", 100),
       needsInput("n-2", "Resolved question", 200, true),
@@ -549,40 +549,20 @@ describe("direct user needs-input reminders", () => {
 
     await deliverUserMessage(session, userMessage(), deps);
 
-    expect(session.messageHistory).toHaveLength(2);
-    expect(session.messageHistory[0]?.type).toBe("user_message");
-    expect(
-      (session.messageHistory[0] as Extract<BrowserIncomingMessage, { type: "user_message" }>).agentSource,
-    ).toEqual({
-      sessionId: "system:needs-input-reminder",
-      sessionLabel: "Needs Input Reminder",
-    });
-    expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining(
-        "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
-      ),
-    });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("6. Newest pending question") });
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("5. Second newest pending question"),
-    });
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("3. Third newest pending question"),
-    });
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.not.stringContaining("1. Oldest pending question"),
-    });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Resolved question") });
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.not.stringContaining("Review-only notification"),
-    });
+    expect(session.messageHistory).toHaveLength(1);
+    expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: "Fresh user message" });
 
     const cliContent = sentClaudeContent(session);
     expect(cliContent.indexOf("[Needs-input reminder]")).toBeLessThan(cliContent.indexOf("Fresh user message"));
     expect(cliContent).toContain(
       "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
     );
+    expect(cliContent).toContain("6. Newest pending question");
+    expect(cliContent).toContain("5. Second newest pending question");
+    expect(cliContent).toContain("3. Third newest pending question");
+    expect(cliContent).not.toContain("1. Oldest pending question");
+    expect(cliContent).not.toContain("Resolved question");
+    expect(cliContent).not.toContain("Review-only notification");
   });
 
   it("delivers and consumes deferred resolution notices with the next direct user message", async () => {
@@ -621,12 +601,12 @@ describe("direct user needs-input reminders", () => {
 
     await deliverUserMessage(session, userMessage(), deps);
 
+    // The resolution notice keeps its feed row; the reminder reaches only the leader.
+    expect(session.messageHistory).toHaveLength(2);
     expect(session.messageHistory[0]).toMatchObject({
       content: expect.stringContaining("[Needs-input resolution notice]"),
     });
-    expect(session.messageHistory[1]).toMatchObject({
-      content: expect.stringContaining("[Needs-input reminder]"),
-    });
+    expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
     const cliContent = sentClaudeContent(session);
     expect(cliContent.indexOf("[Needs-input resolution notice]")).toBeLessThan(
       cliContent.indexOf("[Needs-input reminder]"),
@@ -677,20 +657,8 @@ describe("direct user needs-input reminders", () => {
       deps,
     );
 
-    expect(session.messageHistory).toHaveLength(2);
+    expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("Unresolved same-session same-thread needs-input notifications (q-941): 1."),
-      threadKey: "q-941",
-      questId: "q-941",
-      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
-    });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("2. Current quest question") });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Main pending question") });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Other quest question") });
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.not.stringContaining("Resolved current quest question"),
-    });
-    expect(session.messageHistory[1]).toMatchObject({
       type: "user_message",
       content: "Fresh q-941 reply",
       threadKey: "q-941",
@@ -702,6 +670,7 @@ describe("direct user needs-input reminders", () => {
     expect(cliContent).toContain("2. Current quest question");
     expect(cliContent).not.toContain("Main pending question");
     expect(cliContent).not.toContain("Other quest question");
+    expect(cliContent).not.toContain("Resolved current quest question");
   });
 
   it("keeps Main direct user reminders scoped away from pending quest-thread needs-input notifications", async () => {
@@ -715,15 +684,9 @@ describe("direct user needs-input reminders", () => {
 
     await deliverUserMessage(session, userMessage({ content: "Fresh Main reply" }), deps);
 
-    expect(session.messageHistory).toHaveLength(2);
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("Unresolved same-session same-thread needs-input notifications (main): 1."),
-      threadKey: "main",
-    });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("1. Main pending question") });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Quest pending question") });
-
+    expect(session.messageHistory).toHaveLength(1);
     const cliContent = sentClaudeContent(session);
+    expect(cliContent).toContain("Unresolved same-session same-thread needs-input notifications (main): 1.");
     expect(cliContent).toContain("1. Main pending question");
     expect(cliContent).not.toContain("Quest pending question");
   });
@@ -796,11 +759,10 @@ describe("direct user needs-input reminders", () => {
 
     await deliverUserMessage(session, userMessage(), deps);
 
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("Unresolved same-session same-thread needs-input notifications (main): 1."),
-    });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("2. Still pending") });
-    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Already resolved") });
+    const cliContent = sentClaudeContent(session);
+    expect(cliContent).toContain("Unresolved same-session same-thread needs-input notifications (main): 1.");
+    expect(cliContent).toContain("2. Still pending");
+    expect(cliContent).not.toContain("Already resolved");
   });
 
   it("does not inject before herd or other programmatic messages", async () => {
@@ -863,15 +825,9 @@ describe("direct user needs-input reminders", () => {
       onUserMessage: vi.fn(),
     } as any);
 
-    expect(session.messageHistory).toHaveLength(2);
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("[Needs-input reminder]"),
-      agentSource: {
-        sessionId: "system:needs-input-reminder",
-        sessionLabel: "Needs Input Reminder",
-      },
-    });
-    expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
+    // Only the user's message joins the feed; the reminder already went to the leader with it.
+    expect(session.messageHistory).toHaveLength(1);
+    expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: "Fresh user message" });
   });
 
   it("admits recovery transfers into pending state without adapter dispatch until the durability barrier releases", () => {
@@ -1723,10 +1679,9 @@ describe("direct user needs-input reminders", () => {
     });
   });
 
-  it("does not commit an all-resolved queued Codex reminder into chat history", () => {
-    // Codex can queue a reminder while a notification is active, then commit the
-    // pending input after the user has already resolved that notification. The
-    // queued user message should still land, but the stale reminder card should not.
+  it("never commits a queued Codex reminder into chat history", () => {
+    // Codex queues the reminder with the input; when the input commits, only the user's message
+    // joins the feed, whether the question is still open or was resolved meanwhile.
     const session = makeSession([needsInput("n-1", "Pending question", 100)]);
     session.backendType = "codex";
     const deps = makeDeps({ isOrchestrator: true });
@@ -1747,52 +1702,6 @@ describe("direct user needs-input reminders", () => {
 
     expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: "Fresh user message" });
-  });
-
-  it("commits truncated queued Codex reminders when an unlisted notification remains active", () => {
-    // The reminder text only lists the newest three unresolved notifications.
-    // If those listed IDs resolve while an older hidden notification remains
-    // active, the queued reminder is still meaningful and must not be suppressed.
-    const session = makeSession([
-      needsInput("n-1", "Hidden older question", 100),
-      needsInput("n-3", "Third newest pending question", 300),
-      needsInput("n-5", "Second newest pending question", 500),
-      needsInput("n-6", "Newest pending question", 600),
-    ]);
-    session.backendType = "codex";
-    const deps = makeDeps({ isOrchestrator: true });
-    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
-      targetSession.pendingCodexInputs.push(input);
-    });
-
-    routeAdapterBrowserMessage(session, userMessage(), null, deps);
-    expect(session.pendingCodexInputs[0]?.needsInputReminderText).toContain(
-      "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
-    );
-    for (const notification of session.notifications ?? []) {
-      if (notification.id === "n-1") continue;
-      notification.done = true;
-    }
-
-    commitPendingCodexInputs(session as any, [session.pendingCodexInputs[0]!.id], {
-      broadcastPendingCodexInputs: vi.fn(),
-      broadcastToBrowsers: vi.fn(),
-      persistSession: vi.fn(),
-      touchUserMessage: vi.fn(),
-      onUserMessage: vi.fn(),
-    } as any);
-
-    expect(session.messageHistory).toHaveLength(2);
-    expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining(
-        "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
-      ),
-      agentSource: {
-        sessionId: "system:needs-input-reminder",
-        sessionLabel: "Needs Input Reminder",
-      },
-    });
-    expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
   });
 });
 

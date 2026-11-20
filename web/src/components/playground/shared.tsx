@@ -47,10 +47,6 @@ import {
 } from "../../../shared/injected-event-message.js";
 
 const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
-const NEEDS_INPUT_REMINDER_SOURCE = {
-  sessionId: "system:needs-input-reminder",
-  sessionLabel: "Needs Input Reminder",
-};
 const NEEDS_INPUT_RESOLUTION_SOURCE = {
   sessionId: "system:needs-input-resolution",
   sessionLabel: "Needs Input Resolution",
@@ -1144,93 +1140,6 @@ export function PlaygroundAddressedNotifyToolBlock() {
       parentMessageId="playground-addressed-msg"
     />
   );
-}
-
-export function PlaygroundNeedsInputReminderMessage({ variant }: { variant: "resolved" | "active" | "partial" }) {
-  const sessionId = `playground-needs-input-reminder-${variant}`;
-  const isPartial = variant === "partial";
-  const message: ChatMessage = {
-    id: `playground-needs-input-reminder-${variant}-msg`,
-    role: "user",
-    content: isPartial
-      ? [
-          "[Needs-input reminder]",
-          "Unresolved same-session needs-input notifications: 4. Showing newest 3.",
-          "  6. Newest pending question",
-          "  5. Second newest pending question",
-          "  3. Third newest pending question",
-          "Review or resolve these before assuming the user's latest message answered them.",
-        ].join("\n")
-      : [
-          "[Needs-input reminder]",
-          "Unresolved same-session needs-input notifications: 2.",
-          "  17. Confirm rollout scope",
-          "  15. Keep the old export format as a fallback?",
-          "Review or resolve these before assuming the user's latest message answered them.",
-        ].join("\n"),
-    timestamp: Date.now() - 30_000,
-    agentSource: NEEDS_INPUT_REMINDER_SOURCE,
-  };
-
-  useEffect(() => {
-    const previous = useStore.getState().sessionNotifications;
-    const next = new Map(previous);
-    next.set(
-      sessionId,
-      isPartial
-        ? [
-            {
-              id: "n-6",
-              category: "needs-input",
-              timestamp: Date.now() - 60_000,
-              messageId: null,
-              summary: "Newest pending question",
-              done: true,
-            },
-            {
-              id: "n-5",
-              category: "needs-input",
-              timestamp: Date.now() - 70_000,
-              messageId: null,
-              summary: "Second newest pending question",
-              done: true,
-            },
-            {
-              id: "n-3",
-              category: "needs-input",
-              timestamp: Date.now() - 80_000,
-              messageId: null,
-              summary: "Third newest pending question",
-              done: true,
-            },
-          ]
-        : [
-            {
-              id: "n-17",
-              category: "needs-input",
-              timestamp: Date.now() - 45_000,
-              messageId: null,
-              summary: "Confirm rollout scope",
-              done: variant === "resolved",
-            },
-            {
-              id: "n-15",
-              category: "needs-input",
-              timestamp: Date.now() - 50_000,
-              messageId: null,
-              summary: "Keep the old export format as a fallback?",
-              done: true,
-            },
-          ],
-    );
-    useStore.setState({ sessionNotifications: next });
-
-    return () => {
-      useStore.setState({ sessionNotifications: previous });
-    };
-  }, [isPartial, sessionId, variant]);
-
-  return <MessageBubble message={message} sessionId={sessionId} showTimestamp={false} />;
 }
 
 export function PlaygroundNeedsInputResolutionNoticeMessage() {

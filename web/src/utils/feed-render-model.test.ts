@@ -388,9 +388,10 @@ describe("feed render model builders", () => {
     expect(model.attentionLedgerMessages).toEqual([]);
   });
 
-  it("hides a fully resolved producer-shaped reminder from leader Main while retaining its decision record", () => {
-    // The reminder is durable history, but ordinary Main should show only the
-    // real resolved needs-input record. All Threads must retain the raw row.
+  it("hides a stored needs-input reminder everywhere while retaining its decision record", () => {
+    // Older history holds needs-input reminders Takode used to copy into the feed. Since Nov 19,
+    // 2026 the reminder goes only to the leader (Jiayi: open questions already show as "Needs you"),
+    // so no view shows the stored copies, All Threads included; Main keeps the real needs-input record.
     // The prompt belongs to Main: a quest thread's resolved prompt has no Main row.
     const timestamp = 100;
     const reminder = normalizeRawUserMessage(
@@ -442,13 +443,12 @@ describe("feed render model builders", () => {
       }),
     ]);
     expect(main.messages.map((message) => message.id)).toEqual(["attention-ledger:notification:n-17"]);
-    expect(all.messages.map((message) => message.id)).toEqual([reminder.id]);
+    expect(all.messages.map((message) => message.id)).not.toContain(reminder.id);
   });
 
-  it("keeps active, partial, unavailable, and resolution-notice rows outside the narrow Main filter", () => {
-    // Current producer headers include same-thread routing. Truncated reminders
-    // must stay visible when an unlisted prompt is active, and the separate
-    // resolution-notice source must never be swept into this cleanup.
+  it("hides stored reminders whatever their questions' state, but keeps resolution notices", () => {
+    // Open, partly resolved and unavailable questions all show (or showed) as "Needs you" items, so
+    // no stored reminder is shown; the separate resolution-notice source must never be swept in.
     const activeReminder = normalizeRawUserMessage(
       makeRawNeedsInputReminder({
         id: "needs-input-reminder-active",
@@ -501,12 +501,7 @@ describe("feed render model builders", () => {
       ],
     });
 
-    expect(model.visibleBaseMessages.map((message) => message.id)).toEqual([
-      activeReminder.id,
-      partialReminder.id,
-      unavailableReminder.id,
-      resolutionNotice.id,
-    ]);
+    expect(model.visibleBaseMessages.map((message) => message.id)).toEqual([resolutionNotice.id]);
   });
 
   it("keeps an active Main notification source visible when the selected window would otherwise omit it", () => {
