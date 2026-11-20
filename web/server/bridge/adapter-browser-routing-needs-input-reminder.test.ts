@@ -1703,6 +1703,53 @@ describe("direct user needs-input reminders", () => {
     expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: "Fresh user message" });
   });
+
+  it("commits truncated queued Codex reminders when an unlisted notification remains active", () => {
+    // The reminder text lists only the newest three unresolved notifications. If those listed IDs
+    // resolve while an older unlisted one stays open, the queued input still carries the full
+    // truncated reminder to the leader, and only the user's message joins the feed: the open
+    // question already shows as a "Needs you" item (Jiayi, Nov 19, 2026).
+    const session = makeSession([
+      needsInput("n-1", "Hidden older question", 100),
+      needsInput("n-3", "Third newest pending question", 300),
+      needsInput("n-5", "Second newest pending question", 500),
+      needsInput("n-6", "Newest pending question", 600),
+    ]);
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    routeAdapterBrowserMessage(session, userMessage(), null, deps);
+    const pending = session.pendingCodexInputs[0]!;
+    const header = "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.";
+    expect(pending.needsInputReminderText).toContain(header);
+    expect(pending.deliveryContent).toContain(header);
+    expect(pending.deliveryContent!.indexOf("[Needs-input reminder]")).toBeLessThan(
+      pending.deliveryContent!.indexOf("Fresh user message"),
+    );
+    for (const notification of session.notifications ?? []) {
+      if (notification.id === "n-1") continue;
+      notification.done = true;
+    }
+
+    const broadcastToBrowsers = vi.fn();
+    commitPendingCodexInputs(session as any, [pending.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers,
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+
+    expect(session.messageHistory).toHaveLength(1);
+    expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: "Fresh user message" });
+    expect(broadcastToBrowsers).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ agentSource: expect.objectContaining({ sessionId: "system:needs-input-reminder" }) }),
+    );
+  });
 });
 
 describe("native compaction catalog ordinary-input delivery", () => {
