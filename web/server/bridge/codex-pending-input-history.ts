@@ -3,8 +3,10 @@ import { isCodexTurnRecoverySourceId } from "../../shared/injected-event-message
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { BrowserIncomingMessage, CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
 import {
+  buildNeedsInputReminderHistoryEntry,
   commitQueuedNeedsInputResolutionNoticeHistoryEntry,
   restoreQueuedNeedsInputResolutionNotices,
+  shouldCommitNeedsInputReminderHistoryEntry,
 } from "./adapter-browser-routing-needs-input-reminder.js";
 import {
   collectCodexAutoPauseRecoveryLinks,
@@ -445,6 +447,18 @@ function commitPendingCodexInput(
   const pending = session.pendingCodexInputs[idx];
   session.pendingCodexInputs.splice(idx, 1);
   if (deliveryConfirmed) markCodexAutoPauseRecoveryDelivered(session, pending.autoPauseRecoveries, Date.now(), deps);
+  if (
+    pending.needsInputReminderText &&
+    shouldCommitNeedsInputReminderHistoryEntry(pending.needsInputReminderText, session.notifications)
+  ) {
+    const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(
+      pending.needsInputReminderText,
+      pending.timestamp,
+      pending.id,
+    );
+    session.messageHistory.push(reminderHistoryEntry);
+    deps.broadcastToBrowsers(session, reminderHistoryEntry);
+  }
   commitQueuedNeedsInputResolutionNoticeHistoryEntry(session, pending, deps);
   const takodeHerdEvents = getTakodeHerdEventBrowserMetadata(pending.takodeHerdBatch);
   const modelDeliveryContent =

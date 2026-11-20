@@ -12,6 +12,7 @@ import {
 } from "./adapter-browser-routing-commands.js";
 import { interruptClaudeSdkTurn } from "./claude-sdk-interrupt.js";
 import {
+  buildNeedsInputReminderHistoryEntry,
   buildNeedsInputReminderTextForDirectUserMessage,
   buildNeedsInputResolutionNoticeForDirectUserMessage,
   commitNeedsInputResolutionNoticeHistoryEntry,
@@ -709,8 +710,9 @@ export function ingestUserMessage(
         : null;
   const isLeaderSession = deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true;
   const explicitTarget = parsedTarget ?? (isLeaderSession ? { threadKey: "main" } : null);
-  // The reminder goes to the leader with the message only: the user sees open questions as
-  // "Needs you" items, so the feed gets no copy of it.
+  const reminderThreadRoute =
+    browserMessageRoute(msg) ??
+    (explicitTarget ? { threadKey: explicitTarget.threadKey, questId: explicitTarget.questId } : undefined);
   const needsInputReminderText = buildNeedsInputReminderTextForDirectUserMessage(session, msg, deps);
   const explicitThreadRef: ThreadRef | undefined =
     explicitTarget && explicitTarget.threadKey !== "main"
@@ -765,6 +767,16 @@ export function ingestUserMessage(
     let userMsgHistoryIdx = -1;
     if (commit) {
       commitNeedsInputResolutionNoticeHistoryEntry(session, resolutionNotice, ts, deps);
+      if (needsInputReminderText) {
+        const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(
+          needsInputReminderText,
+          ts,
+          ts,
+          reminderThreadRoute,
+        );
+        session.messageHistory.push(reminderHistoryEntry);
+        deps.broadcastToBrowsers(session, reminderHistoryEntry);
+      }
       session.messageHistory.push(userHistoryEntry);
       if (isActualHumanUserMessage(userHistoryEntry)) {
         acknowledgeMonitoredThreadResult(session, explicitTarget?.threadKey ?? "main", msg.threadMonitorResultId);

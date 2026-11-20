@@ -50,7 +50,7 @@ import {
   sanitizeNotificationMessageTargets,
 } from "./notification-targets.js";
 import { filterRootAgentFeedMessages } from "./root-agent-feed-message.js";
-import { isStoredNeedsInputReminder } from "./needs-input-reminder.js";
+import { isFullyResolvedNeedsInputReminder } from "./needs-input-reminder.js";
 
 export interface BuildFeedMessageModelInput {
   leaderSessionId: string;
@@ -154,7 +154,10 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     normalizedThreadKey,
   );
   const visibleBaseMessages = removeMergedThreadAttachmentMarkers(baseMessages, mergedThreadAttachmentKeys).filter(
-    (message) => !isStoredNeedsInputReminder(message),
+    (message) =>
+      !input.projectThreadRoutes ||
+      !isMainThreadKey(normalizedThreadKey) ||
+      !isFullyResolvedNeedsInputReminder(message, displayNotifications),
   );
   const baseMessageIds = new Set(visibleBaseMessages.map((message) => message.id));
   const windowTimestampRange =

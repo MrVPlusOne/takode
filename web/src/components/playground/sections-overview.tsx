@@ -126,6 +126,7 @@ import {
   PlaygroundLightboxDemo,
   PlaygroundMcpRow,
   PlaygroundAddressedNotifyToolBlock,
+  PlaygroundNeedsInputReminderMessage,
   PlaygroundNeedsInputResolutionNoticeMessage,
   PlaygroundCompactionRecoveryEventMessage,
   PlaygroundLeaderKickoffEventMessage,
@@ -683,6 +684,15 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="User message (from agent)">
             <MessageBubble message={MSG_USER_AGENT} />
+          </Card>
+          <Card label="Needs-input reminder (resolved)">
+            <PlaygroundNeedsInputReminderMessage variant="resolved" />
+          </Card>
+          <Card label="Needs-input reminder (open and resolved prompts)">
+            <PlaygroundNeedsInputReminderMessage variant="active" />
+          </Card>
+          <Card label="Needs-input reminder (partial state)">
+            <PlaygroundNeedsInputReminderMessage variant="partial" />
           </Card>
           <Card label="Needs-input resolution notice">
             <PlaygroundNeedsInputResolutionNoticeMessage />
