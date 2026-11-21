@@ -33,6 +33,7 @@ async function launchOptions(options: Partial<ConstructorParameters<typeof Claud
 
 import { ClaudeSdkAdapter } from "./claude-sdk-adapter.js";
 import { claudeLongSleepHook } from "./bridge/bash-sleep-policy.js";
+import { claudeEmptySlackThreadHook } from "./slack-thread-read-hint.js";
 
 describe("ClaudeSdkAdapter launch env", () => {
   const originalGitEditor = process.env.GIT_EDITOR;
@@ -257,6 +258,11 @@ describe("ClaudeSdkAdapter launch env", () => {
     // A hook rather than an interrupt: interrupting the turn would cancel every running sub-agent.
     const { options } = await launchOptions({ permissionMode: "bypassPermissions" });
     expect(options.hooks.PreToolUse).toContain(claudeLongSleepHook);
+  });
+
+  it("adds a note to empty Slack thread reads with a hook", async () => {
+    const { options } = await launchOptions({});
+    expect(options.hooks.PostToolUse).toContain(claudeEmptySlackThreadHook);
   });
 
   it("passes allowed tools into the SDK query options", async () => {

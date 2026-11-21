@@ -32,6 +32,11 @@ import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
  * sent a link into it. Other channel reads, such as a briefing scanning
  * channels, start nothing: the session reads those itself whenever it needs them.
  *
+ * A watched direct or group conversation includes its threads. Slack's history
+ * of a conversation leaves thread replies out, so they are found with Slack's
+ * search, which can lag behind by about half a minute; each search reaches back
+ * `REPLY_SEARCH_OVERLAP_MS` and skips replies already found.
+ *
  * Besides the regular check, the user starting to write to a session (or
  * opening its question card) checks that session's conversations, so the
  * updates riding on what they send are fresh.
@@ -46,6 +51,8 @@ const MAX_WATCHED_PER_SESSION = 10;
 /** Text of new messages kept for one conversation; later messages are only counted. */
 const MESSAGE_TEXT_BUDGET = 4_000;
 const READ_TOOL = /(?:^|__|\.)slack_read_(thread|channel)$/;
+/** How far back each search for thread replies reaches before the previous one ended, for replies Slack's search had not indexed yet. */
+const REPLY_SEARCH_OVERLAP_MS = 10 * 60_000;
 
 interface WatchedConversation {
   sessionId: string;
@@ -68,6 +75,13 @@ interface WatchedConversation {
   pendingLatestTs?: string;
   /** A notice has named this conversation to the session, so later ones only carry its ID. */
   introduced?: boolean;
+  /**
+   * For a direct or group conversation: thread replies after this are new to
+   * the session, unless listed in `repliesFound`. Starts when the watch starts.
+   */
+  repliesAfter?: string;
+  /** Replies after `repliesAfter` already added to `pending`, so a search reaching back does not add them again. */
+  repliesFound?: string[];
 }
 
 /** A conversation read in one tool result. */
@@ -228,12 +242,15 @@ export class SlackConversationWatch {
     linkOrigin?: string;
     accept: () => void;
   } | null {
-    const ready = this.conversations.filter((c) => c.sessionId === sessionId && c.pendingLatestTs);
+    const ready = this.conversations.filter(
+      (c) => c.sessionId === sessionId && (c.pendingLatestTs || c.pending.length > 0 || c.pendingOmitted > 0),
+    );
     if (ready.length === 0) return null;
     const explain = !this.conversations.some((c) => c.sessionId === sessionId && c.introduced);
     const told = ready.map((conversation) => ({
       conversation,
-      latestTs: conversation.pendingLatestTs!,
+      latestTs: conversation.pendingLatestTs,
+      replies: new Set(conversation.pending.filter((m) => m.threadTs).map((m) => m.ts)),
     }));
     return {
       updates: ready.map((conversation) => ({
@@ -249,8 +266,10 @@ export class SlackConversationWatch {
       explain,
       ...(this.linkOrigin ? { linkOrigin: this.linkOrigin } : {}),
       accept: () => {
-        for (const { conversation, latestTs } of told) {
-          markSeen(conversation, latestTs);
+        for (const { conversation, latestTs, replies } of told) {
+          if (latestTs) markSeen(conversation, latestTs);
+          conversation.pending = conversation.pending.filter((m) => !replies.has(m.ts));
+          if (conversation.pending.length === 0 && !conversation.pendingLatestTs) conversation.pendingOmitted = 0;
           conversation.introduced = true;
         }
         this.persist();
@@ -324,14 +343,47 @@ export class SlackConversationWatch {
     for (const watcher of watchers) {
       for (const message of sorted) {
         if (compareSlackTs(message.ts, newestKnown(watcher)) <= 0) continue;
-        const keptChars = watcher.pending.reduce((sum, kept) => sum + kept.text.length, 0);
-        if (watcher.pendingOmitted === 0 && keptChars + message.text.length <= MESSAGE_TEXT_BUDGET) {
-          watcher.pending.push(message);
-        } else {
-          watcher.pendingOmitted++;
-        }
+        addPending(watcher, message);
         watcher.pendingLatestTs = message.ts;
       }
+    }
+    if (!threadTs) await this.checkThreadReplies(connection, watchers);
+  }
+
+  /**
+   * Add new replies in the threads of a direct or group conversation. A reply
+   * goes to each session watching the conversation, except one that also
+   * watches that thread and hears of it there. `pendingLatestTs` stays the
+   * newest top-level message, where the next history read starts.
+   */
+  private async checkThreadReplies(connection: SlackReadConnection, watchers: WatchedConversation[]): Promise<void> {
+    const { channelId } = watchers[0]!;
+    const startedAt = slackTsAt(this.now());
+    for (const watcher of watchers) watcher.repliesAfter ??= startedAt;
+    const after = watchers.map((w) => w.repliesAfter!).sort(compareSlackTs)[0]!;
+    let found: Awaited<ReturnType<SlackReadConnection["readThreadReplies"]>>;
+    try {
+      found = await connection.readThreadReplies(channelId, after);
+    } catch (error) {
+      this.log(
+        `Searching Slack conversation ${channelId} for thread replies failed: ${error instanceof Error ? error.message : error}`,
+      );
+      return;
+    }
+    // Searched up to the check's start, or up to the last message read when pages remain.
+    const searchedTo = found.readTo ?? startedAt;
+    const nextAfter = slackTsAt(slackTsMs(searchedTo) - REPLY_SEARCH_OVERLAP_MS);
+    for (const watcher of watchers) {
+      const known = new Set(watcher.repliesFound ?? []);
+      for (const reply of found.replies) {
+        if (compareSlackTs(reply.ts, watcher.repliesAfter!) <= 0 || known.has(reply.ts)) continue;
+        known.add(reply.ts);
+        if (this.find(watcher.sessionId, channelId, reply.threadTs)) continue;
+        addPending(watcher, reply);
+      }
+      watcher.pending.sort((a, b) => compareSlackTs(a.ts, b.ts));
+      if (compareSlackTs(nextAfter, watcher.repliesAfter!) > 0) watcher.repliesAfter = nextAfter;
+      watcher.repliesFound = [...known].filter((ts) => compareSlackTs(ts, watcher.repliesAfter!) > 0);
     }
   }
 
@@ -359,6 +411,7 @@ export class SlackConversationWatch {
       lastReadAt: 0,
       pending: [],
       pendingOmitted: 0,
+      ...(read.threadTs ? {} : { repliesAfter: slackTsAt(this.now()) }),
     };
     if (!existing) this.conversations.push(conversation);
     conversation.label = read.label || conversation.label;
@@ -548,15 +601,41 @@ export function resetSlackConversationWatchForTest(watch: SlackConversationWatch
   activeWatch = watch;
 }
 
+/**
+ * The session saw the conversation up to `ts`: drop the waiting messages up to
+ * there. Thread replies of a direct or group conversation stay, since reading
+ * its history does not show them; they are cleared once told.
+ */
 function markSeen(conversation: WatchedConversation, ts: string): void {
   if (compareSlackTs(ts, conversation.seenTs) > 0) conversation.seenTs = ts;
+  const unseen = (message: SlackMessage) =>
+    message.threadTs !== undefined || compareSlackTs(message.ts, conversation.seenTs) > 0;
   if (conversation.pendingLatestTs && compareSlackTs(conversation.pendingLatestTs, conversation.seenTs) <= 0) {
-    conversation.pending = [];
+    conversation.pending = conversation.pending.filter((message) => message.threadTs !== undefined);
     conversation.pendingOmitted = 0;
     delete conversation.pendingLatestTs;
     return;
   }
-  conversation.pending = conversation.pending.filter((message) => compareSlackTs(message.ts, conversation.seenTs) > 0);
+  conversation.pending = conversation.pending.filter(unseen);
+}
+
+/** Keep a new message for the session, within the text budget; past it, only count it. */
+function addPending(conversation: WatchedConversation, message: SlackMessage): void {
+  const keptChars = conversation.pending.reduce((sum, kept) => sum + kept.text.length, 0);
+  if (conversation.pendingOmitted === 0 && keptChars + message.text.length <= MESSAGE_TEXT_BUDGET) {
+    conversation.pending.push(message);
+  } else {
+    conversation.pendingOmitted++;
+  }
+}
+
+/** A time as a Slack timestamp. */
+function slackTsAt(ms: number): string {
+  return `${Math.floor(ms / 1000)}.000000`;
+}
+
+function slackTsMs(ts: string): number {
+  return Number(ts.split(".")[0]) * 1000;
 }
 
 interface SlackLink {

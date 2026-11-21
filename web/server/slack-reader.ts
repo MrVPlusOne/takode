@@ -10,6 +10,9 @@ import {
   parseSlackChannelName,
   parseSlackMessages,
   parseSlackPermalinkOrigin,
+  parseSlackSearchCursor,
+  parseSlackSearchMessages,
+  slackToolResultPagination,
   slackToolResultText,
   type SlackMessage,
 } from "../shared/slack-updates.js";
@@ -18,8 +21,14 @@ import {
 export interface SlackReadConnection {
   /** Messages in a thread (its first message included) newer than `oldest`. */
   readThread(channelId: string, threadTs: string, oldest: string): Promise<SlackMessage[]>;
-  /** Messages in a conversation newer than `oldest`, newest first as Slack prints them. */
+  /** Messages in a conversation newer than `oldest`, newest first as Slack prints them; thread replies are not among them. */
   readChannel(channelId: string, oldest: string): Promise<SlackMessage[]>;
+  /**
+   * Replies in a conversation's threads from `after` on, oldest first, found
+   * with Slack's search, each with its thread's `threadTs`. Reads at most
+   * `SEARCH_PAGE_LIMIT` pages; when more remain, `readTo` is the last message read.
+   */
+  readThreadReplies(channelId: string, after: string): Promise<{ replies: SlackMessage[]; readTo?: string }>;
   /** How Slack names a conversation: `#channel`, `DM`, `Group DM`, or null when it prints none. */
   readChannelName(channelId: string): Promise<string | null>;
   /** The workspace's web address, from the permalink Slack's search gives a message in the conversation. */
@@ -37,6 +46,10 @@ const EXPIRY_MARGIN_MS = 60_000;
 /** `claude mcp list` checks every MCP server Claude Code has; it normally takes a second or two. */
 const RENEWAL_TIMEOUT_MS = 60_000;
 const execFilePromise = promisify(execFile);
+/** Slack's search returns at most 20 results a page. */
+const SEARCH_PAGE_SIZE = 20;
+/** Pages read for one conversation in one check; the next check goes on from the last reply read. */
+const SEARCH_PAGE_LIMIT = 5;
 
 interface McpOAuthEntry {
   serverUrl?: string;
@@ -109,6 +122,31 @@ export const openClaudeSlackReader: OpenSlackReader = async () => {
             limit: 100,
           }),
         ),
+      readThreadReplies: async (channelId, after) => {
+        const replies: SlackMessage[] = [];
+        let cursor: string | null = null;
+        let readTo: string | undefined;
+        for (let page = 0; page < SEARCH_PAGE_LIMIT; page++) {
+          const result = await call("slack_search_public_and_private", {
+            // `is:thread` keeps messages in threads: replies, and the messages that started them.
+            filters: `in:<#${channelId}> is:thread`,
+            natural_language_query: "",
+            after: after.split(".")[0],
+            sort: "timestamp",
+            sort_dir: "asc",
+            limit: SEARCH_PAGE_SIZE,
+            include_context: false,
+            include_bots: true,
+            ...(cursor ? { cursor } : {}),
+          });
+          const messages = parseSlackSearchMessages(slackToolResultText(result));
+          replies.push(...messages.filter((message) => message.threadTs));
+          readTo = messages.at(-1)?.ts ?? readTo;
+          cursor = parseSlackSearchCursor(slackToolResultPagination(result));
+          if (!cursor) return { replies };
+        }
+        return { replies, readTo: readTo ?? after };
+      },
       readChannelName: async (channelId) =>
         parseSlackChannelName(await read("slack_read_channel", { channel_id: channelId, limit: 1 })),
       readLinkOrigin: async (channelId) =>

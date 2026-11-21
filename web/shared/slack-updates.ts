@@ -21,6 +21,10 @@ export interface SlackMessage {
   /** The time as Slack's tool printed it, with its time zone. */
   time: string;
   text: string;
+  /** For a reply in a thread, the timestamp of the thread's first message. */
+  threadTs?: string;
+  /** For a message that started a thread, how many replies Slack showed under it. */
+  replies?: number;
 }
 
 /** New messages in one watched conversation, ready to tell the session about. */
@@ -42,14 +46,16 @@ export interface SlackUpdate {
 
 const SECTION_HEADER = /^(?:=== THREAD PARENT MESSAGE ===|=== THREAD REPLIES\b.*===|--- Reply \d+ of \d+ ---)\s*$/;
 const CHANNEL_MESSAGE_HEADER = /^=== Message from (.+) at (.+?) ===\s*$/;
-const TRAILING_METADATA = /^(?:Reactions: .*|Thread: \d+ repl(?:y|ies)\b.*)$/;
+const TRAILING_METADATA = /^Reactions: .*$/;
+/** Slack prints this after a message that started a thread, before any reactions or forwarded text. */
+const THREAD_SUMMARY = /^Thread: (\d+) repl(?:y|ies) \(latest: .*\)\s*$/;
 
 /**
  * The messages in the text of a `slack_read_thread` or `slack_read_channel`
  * result, in the order printed. Each message is a header (`=== Message from
  * <author> at <time> ===`, or a thread section followed by `From:` and `Time:`
- * lines), a `Message TS:` line and its text; the reactions and reply counts
- * Slack prints after the text are dropped.
+ * lines), a `Message TS:` line and its text. The reactions Slack prints after
+ * the text are dropped; a thread's reply count is kept as `replies`.
  */
 export function parseSlackMessages(text: string): SlackMessage[] {
   const messages: SlackMessage[] = [];
@@ -61,6 +67,7 @@ export function parseSlackMessages(text: string): SlackMessage[] {
     author: string;
     time: string;
     lines: string[];
+    replies?: number;
   } | null = null;
   const finish = () => {
     if (current)
@@ -69,6 +76,7 @@ export function parseSlackMessages(text: string): SlackMessage[] {
         author: current.author,
         time: current.time,
         text: body(current.lines),
+        ...(current.replies ? { replies: current.replies } : {}),
       });
     current = null;
   };
@@ -94,10 +102,51 @@ export function parseSlackMessages(text: string): SlackMessage[] {
       if (at) time = at;
       continue;
     }
+    const replies = current && line.match(THREAD_SUMMARY)?.[1];
+    if (current && replies) {
+      current.replies = Number(replies);
+      continue;
+    }
     current?.lines.push(line);
   }
   finish();
   return messages;
+}
+
+/**
+ * The messages in the text of a detailed `slack_search_*` result, in the order
+ * printed. Each result has `From:`, `Time:` and `Message_ts:` lines, a
+ * `Permalink:` whose `thread_ts` names the thread a reply belongs to (a thread's
+ * first message names itself), an optional `Reply count:` and the text after
+ * `Text:`.
+ */
+export function parseSlackSearchMessages(text: string): SlackMessage[] {
+  const messages: SlackMessage[] = [];
+  for (const block of text.split(/^### Result \d+ of \d+\s*$/m).slice(1)) {
+    const ts = block.match(/^Message_ts: (\d+\.\d+)\s*$/m)?.[1];
+    if (!ts) continue;
+    const threadTs = block.match(/^Permalink: .*[?&]thread_ts=(\d+\.\d+)/m)?.[1];
+    const replies = Number(block.match(/^Reply count: (\d+)\s*$/m)?.[1] ?? 0);
+    const textStart = block.match(/^Text: ?/m);
+    const lines = textStart ? block.slice(textStart.index! + textStart[0].length).split(/\r?\n/) : [];
+    // Each result ends with a `---` line before the next one.
+    while (lines.length > 0 && /^(?:---)?\s*$/.test(lines.at(-1)!)) lines.pop();
+    messages.push({
+      ts,
+      // `From: Ada Lovelace (ID: U123)`, with ` [BOT]` after a bot's.
+      author: (block.match(/^From: (.*)$/m)?.[1] ?? "").replace(/\s*\(ID: [A-Z0-9]+\)\s*(?:\[BOT\])?\s*$/, "").trim(),
+      time: block.match(/^Time: (.+)$/m)?.[1]?.trim() ?? "",
+      text: body(lines),
+      ...(threadTs && threadTs !== ts ? { threadTs } : {}),
+      ...(replies ? { replies } : {}),
+    });
+  }
+  return messages;
+}
+
+/** The cursor for the next page of a `slack_search_*` result, or null on its last page. */
+export function parseSlackSearchCursor(pagination: string): string | null {
+  return pagination.match(/use cursor `([^`]+)`/)?.[1] ?? null;
 }
 
 /** The `#channel` or other name a `slack_read_channel` result starts with. */
@@ -153,7 +202,8 @@ export function formatSlackUpdatesNotice(
   if (options.explain) {
     lines.push(
       "Only messages you have not seen are shown, under the conversation's ID: `<channel_id>/<message_ts>` for a thread " +
-        "(read it all with `slack_read_thread`), or a direct-message conversation's `<channel_id>` (`slack_read_channel`). " +
+        "(read it all with `slack_read_thread`), or a direct or group message conversation's `<channel_id>` (`slack_read_channel`), " +
+        "whose thread replies are shown with their thread's ID. " +
         "Act on them only if they change your work, and run `takode slack stop <id>` once its topic is closed.",
     );
   }
@@ -166,7 +216,11 @@ export function formatSlackUpdatesNotice(
     lines.push("", `${id}${intro}${link}`);
     for (const message of update.messages) {
       // A blank line ends the quote above, or Markdown folds the next line into it.
-      lines.push("", `**${message.author || "Someone"}** (${message.time})`, quote(message.text));
+      lines.push(
+        "",
+        `**${message.author || "Someone"}** (${message.time}${threadNote(update, message)})`,
+        quote(message.text),
+      );
     }
     if (update.omitted > 0) lines.push("", `+${plural(update.omitted, "newer message")} not shown.`);
   }
@@ -194,17 +248,30 @@ export function parseSlackPermalinkOrigin(content: unknown): string | null {
 }
 
 /**
+ * Where a message of a direct or group conversation sits among its threads:
+ * the thread a reply belongs to, or the thread a message started. Messages of
+ * a watched thread need no note.
+ */
+function threadNote(update: SlackUpdate, message: SlackMessage): string {
+  if (update.threadTs) return "";
+  if (message.threadTs) return `, in thread \`${update.channelId}/${message.threadTs}\``;
+  if (message.replies)
+    return `, ${plural(message.replies, "reply", "replies")} in thread \`${update.channelId}/${message.ts}\``;
+  return "";
+}
+
+/**
  * Where an update starts in Slack: its first new message, opened in its thread
  * for a thread reply, or the conversation when no message is kept.
  */
 function slackUpdateUrl(origin: string, update: SlackUpdate): string {
-  const ts = update.messages[0]?.ts ?? update.threadTs;
+  const first = update.messages[0];
+  const ts = first?.ts ?? update.threadTs;
   const base = `${origin}/archives/${update.channelId}`;
   if (!ts) return base;
   const message = `${base}/p${ts.replace(".", "")}`;
-  return update.threadTs && ts !== update.threadTs
-    ? `${message}?thread_ts=${update.threadTs}&cid=${update.channelId}`
-    : message;
+  const threadTs = update.threadTs ?? first?.threadTs;
+  return threadTs && ts !== threadTs ? `${message}?thread_ts=${threadTs}&cid=${update.channelId}` : message;
 }
 
 function parseSlackToolResult(content: unknown): { messages: string; pagination: string } {
@@ -250,6 +317,6 @@ function quote(text: string): string {
     .join("\n");
 }
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+function plural(count: number, noun: string, nouns = `${noun}s`): string {
+  return `${count} ${count === 1 ? noun : nouns}`;
 }

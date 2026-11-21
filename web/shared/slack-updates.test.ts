@@ -5,6 +5,8 @@ import {
   parseSlackChannelName,
   parseSlackMessages,
   parseSlackPermalinkOrigin,
+  parseSlackSearchCursor,
+  parseSlackSearchMessages,
   slackToolResultText,
 } from "./slack-updates.js";
 
@@ -77,6 +79,7 @@ describe("parseSlackMessages", () => {
         author: "Ming-Hao Yu",
         time: "2026-11-10 16:50:13 PST",
         text: "[Question] Trace data knowledge extraction :thread:",
+        replies: 7,
       },
       {
         ts: "1794357944.595709",
@@ -86,6 +89,107 @@ describe("parseSlackMessages", () => {
       },
     ]);
     expect(parseSlackChannelName(CHANNEL_TEXT)).toBe("#sq-pretraining-data-code");
+  });
+
+  it("keeps a thread's reply count when Slack prints it before forwarded text", () => {
+    // From a live group DM read: the reply count sits between the message and
+    // the forwarded message it carries, so it is not trailing metadata.
+    const [forwarded] = parseSlackMessages(
+      [
+        "=== Message from Frank Xu (U08BC1BR7D4) at 2026-11-18 18:47:11 PST === ",
+        "Message TS: 1795056431.217309",
+        "<@U09TLUFKAQ4|Qingyu Chen> 你要不看看这个",
+        "Thread: 16 replies (latest: 2026-11-18 19:31:44 PST)",
+        "Forwarded message from Timo Schick: btw this is papyrus usage",
+      ].join("\n"),
+    );
+    expect(forwarded).toEqual({
+      ts: "1795056431.217309",
+      author: "Frank Xu",
+      time: "2026-11-18 18:47:11 PST",
+      text: "<@U09TLUFKAQ4|Qingyu Chen> 你要不看看这个\nForwarded message from Timo Schick: btw this is papyrus usage",
+      replies: 16,
+    });
+  });
+});
+
+describe("parseSlackSearchMessages", () => {
+  // As a detailed `slack_search_public_and_private` search (`in:<#C…> is:thread`)
+  // printed it in a live group DM, participant lists shortened.
+  const SEARCH_TEXT = [
+    "# Search Results for: ",
+    "",
+    "## Messages (3 results)",
+    "### Result 1 of 3",
+    "Channel: Group DM (ID: C0C0AJ3JLL8)",
+    "Participants: Jiayi Wei (ID: U0964LU3BUZ), Junhong Shen (ID: U0AGBRAGMFA)",
+    "From: Junhong Shen (ID: U0AGBRAGMFA) ",
+    "Time: 2026-11-20 14:20:17 PST",
+    "Message_ts: 1795213217.145369",
+    "Reply count: 38",
+    "Permalink: [link](https://acme.enterprise.slack.com/archives/C0C0AJ3JLL8/p1795213217145369?thread_ts=1795213217.145369&cid=C0C0AJ3JLL8)",
+    "Text: ",
+    "如果你要是新建一个按道理要重新12b->77b",
+    "",
+    "---",
+    "",
+    "### Result 2 of 3",
+    "Channel: Group DM (ID: C0C0AJ3JLL8)",
+    "From: Wenxu Mao (ID: U0AM9ST0TL1) ",
+    "Time: 2026-11-20 15:44:08 PST",
+    "Message_ts: 1795218248.073529",
+    "Permalink: [link](https://acme.enterprise.slack.com/archives/C0C0AJ3JLL8/p1795218248073529?thread_ts=1795213217.145369&cid=C0C0AJ3JLL8)",
+    "Text: ",
+    "应该不会restart?",
+    "> quoted line",
+    "",
+    "---",
+    "",
+    "### Result 3 of 3",
+    "Channel: Group DM (ID: C0C0AJ3JLL8)",
+    "From:  (ID: U00)  [BOT]",
+    "Time: 2026-11-20 16:03:18 PST",
+    "Message_ts: 1795219398.946179",
+    "Permalink: [link](https://acme.enterprise.slack.com/archives/C0C0AJ3JLL8/p1795219398946179?thread_ts=1795219398.310939&cid=C0C0AJ3JLL8)",
+    "Text: ",
+    "This channel aims to resolve all feature requests.",
+    "",
+    "---",
+    "",
+  ].join("\n");
+
+  it("reads each result, naming the thread a reply belongs to", () => {
+    expect(parseSlackSearchMessages(SEARCH_TEXT)).toEqual([
+      // A thread's first message names itself as the thread: it is no reply.
+      {
+        ts: "1795213217.145369",
+        author: "Junhong Shen",
+        time: "2026-11-20 14:20:17 PST",
+        text: "如果你要是新建一个按道理要重新12b->77b",
+        replies: 38,
+      },
+      {
+        ts: "1795218248.073529",
+        author: "Wenxu Mao",
+        time: "2026-11-20 15:44:08 PST",
+        text: "应该不会restart?\n> quoted line",
+        threadTs: "1795213217.145369",
+      },
+      {
+        ts: "1795219398.946179",
+        author: "",
+        time: "2026-11-20 16:03:18 PST",
+        text: "This channel aims to resolve all feature requests.",
+        threadTs: "1795219398.310939",
+      },
+    ]);
+  });
+
+  it("finds the next page's cursor", () => {
+    expect(parseSlackSearchCursor("For the next page of results use cursor `Q1VSUkVOVF9QQUdFOjI=`\n")).toBe(
+      "Q1VSUkVOVF9QQUdFOjI=",
+    );
+    expect(parseSlackSearchCursor("End of results - No more pages available.\\n")).toBeNull();
   });
 });
 
@@ -192,6 +296,45 @@ describe("formatSlackUpdatesNotice", () => {
     );
     expect(notice).toContain("`D1` · [Open in Slack](https://acme.slack.com/archives/D1/p3000001)");
     expect(notice).toContain("`C1/5.000001` · [Open in Slack](https://acme.slack.com/archives/C1/p5000001)");
+  });
+
+  it("shows where a direct or group conversation's messages sit among its threads", () => {
+    // Thread replies in a group DM arrive with the conversation; each names its
+    // thread by the ID `slack_read_thread` takes, and a message that started a
+    // thread says how many replies it has, so the agent sees where discussion went.
+    const update = {
+      channelId: "C7",
+      label: "Group DM",
+      messages: [
+        {
+          ts: "10.000001",
+          author: "Junhong Shen",
+          time: "14:20 PST",
+          text: "rebuild 12b->77b?",
+          replies: 15,
+        },
+        {
+          ts: "20.000001",
+          author: "Wenxu Mao",
+          time: "15:44 PST",
+          text: "no restart",
+          threadTs: "10.000001",
+        },
+      ],
+      omitted: 0,
+      introduce: false,
+    };
+    const notice = formatSlackUpdatesNotice([update], { explain: false });
+    expect(notice).toContain("**Junhong Shen** (14:20 PST, 15 replies in thread `C7/10.000001`)");
+    expect(notice).toContain("**Wenxu Mao** (15:44 PST, in thread `C7/10.000001`)");
+    // When the first new message is a reply, the feed's link opens it in its thread.
+    const replyFirst = { ...update, messages: [update.messages[1]!] };
+    expect(
+      formatSlackUpdatesNotice([replyFirst], {
+        explain: false,
+        linkOrigin: "https://acme.slack.com",
+      }),
+    ).toContain("[Open in Slack](https://acme.slack.com/archives/C7/p20000001?thread_ts=10.000001&cid=C7)");
   });
 
   it("carries only the conversation ID and new messages in a repeated update", () => {

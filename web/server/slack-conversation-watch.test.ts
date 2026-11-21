@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -29,6 +29,9 @@ let slack: {
   /** The workspace address Slack's search permalinks show, and the conversations searched. */
   origin: string | null;
   searches: string[];
+  /** Thread replies Slack's search finds in each conversation, and the reply searches made (`<channel>><after>`). */
+  replies: Map<string, SlackMessage[]>;
+  replySearches: string[];
 };
 let available: boolean;
 let watches: SlackConversationWatch[];
@@ -37,7 +40,16 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "slack-watch-"));
   now = 1_000_000;
   active = new Set(["s1", "s2"]);
-  slack = { thread: new Map(), channel: new Map(), names: new Map(), reads: [], origin: null, searches: [] };
+  slack = {
+    thread: new Map(),
+    channel: new Map(),
+    names: new Map(),
+    reads: [],
+    origin: null,
+    searches: [],
+    replies: new Map(),
+    replySearches: [],
+  };
   available = true;
   watches = [];
 });
@@ -62,6 +74,14 @@ const openReader: OpenSlackReader = async () => {
     readChannel: async (channelId, oldest) => {
       slack.reads.push(`${channelId}>${oldest}`);
       return newer(slack.channel.get(channelId), oldest).reverse();
+    },
+    readThreadReplies: async (channelId, after) => {
+      slack.replySearches.push(`${channelId}>${after}`);
+      // Slack's `after` counts whole seconds and includes them.
+      const replies = (slack.replies.get(channelId) ?? []).filter(
+        (reply) => Math.floor(Number(reply.ts)) >= Number(after.split(".")[0]),
+      );
+      return { replies };
     },
     readChannelName: async (channelId) => {
       slack.reads.push(`name ${channelId}`);
@@ -547,6 +567,156 @@ describe("SlackConversationWatch", () => {
     await reloaded.load();
     expect(reloaded.takeUpdates("s1")?.updates[0]!.messages).toEqual([message("2.000001")]);
     expect(JSON.parse(await readFile(join(root, "watch.json"), "utf-8")).conversations).toHaveLength(1);
+  });
+});
+
+describe("thread replies in watched direct and group conversations", () => {
+  // Slack's history of a conversation leaves thread replies out, so a leader
+  // watching a group DM missed the whole discussion in one of its threads
+  // (Nov 20). Replies come from Slack's search instead, which lags by about
+  // half a minute, so each search reaches back and skips replies already found.
+  // `now` starts at 1_000_000 ms: Slack time 1000.
+  function reply(ts: string, threadTs: string, text = `reply ${ts}`): SlackMessage {
+    return { ...message(ts, text), threadTs };
+  }
+
+  it("adds replies posted since the watch started, with the conversation's new messages", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C7",
+      label: "Group DM",
+      seenTs: "900.000001",
+    });
+    slack.channel.set("C7", [message("1050.000001", "top-level")]);
+    slack.replies.set("C7", [
+      reply("999.000001", "950.000001", "before the watch"),
+      reply("1100.000001", "950.000001"),
+    ]);
+    now += 2 * 60_000;
+
+    await watch.poll();
+    expect(slack.replySearches).toEqual(["C7>1000.000000"]);
+    const taken = watch.takeUpdates("s1")!;
+    expect(taken.updates[0]!.messages).toEqual([
+      message("1050.000001", "top-level"),
+      reply("1100.000001", "950.000001"),
+    ]);
+    taken.accept();
+    expect(watch.takeUpdates("s1")).toBeNull();
+
+    // The next check reaches back but does not repeat the reply, and the
+    // history read still starts after the newest top-level message.
+    slack.replies.set("C7", [reply("1100.000001", "950.000001"), reply("1700.000001", "950.000001")]);
+    now += 10 * 60_000;
+    await watch.poll();
+    expect(slack.reads.at(-1)).toBe("C7>1050.000001");
+    expect(slack.replySearches.at(-1)).toBe("C7>1000.000000");
+    expect(watch.takeUpdates("s1")!.updates[0]!.messages).toEqual([reply("1700.000001", "950.000001")]);
+  });
+
+  it("finds a reply Slack's search indexed only after a later check", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C7",
+      label: "Group DM",
+      seenTs: "900.000001",
+    });
+    now = 2_000_000;
+    slack.replies.set("C7", [reply("1990.000001", "950.000001")]);
+    await watch.poll();
+    watch.takeUpdates("s1")!.accept();
+
+    // Posted at 1995 but not searchable until after the check at 2000.
+    slack.replies.set("C7", [reply("1990.000001", "950.000001"), reply("1995.000001", "960.000001")]);
+    now = 2_600_000;
+    await watch.poll();
+    expect(slack.replySearches.at(-1)).toBe("C7>1400.000000");
+    expect(watch.takeUpdates("s1")!.updates[0]!.messages).toEqual([reply("1995.000001", "960.000001")]);
+  });
+
+  it("leaves out replies in a thread the session also watches, which it hears of there", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C7",
+      label: "Group DM",
+      seenTs: "900.000001",
+    });
+    watch.recordRead("s1", {
+      channelId: "C7",
+      threadTs: "950.000001",
+      label: "rebuild?",
+      seenTs: "950.000001",
+    });
+    watch.recordRead("s2", {
+      channelId: "C7",
+      label: "Group DM",
+      seenTs: "900.000001",
+    });
+    const answer = reply("1100.000001", "950.000001");
+    slack.replies.set("C7", [answer]);
+    slack.thread.set("C7/950.000001", [{ ...answer, threadTs: undefined }]);
+    now += 60_000;
+    await watch.poll();
+    const s1 = watch.takeUpdates("s1")!.updates;
+    expect(s1.map((u) => [u.threadTs ?? u.channelId, u.messages.map((m) => m.ts)])).toEqual([
+      ["950.000001", ["1100.000001"]],
+    ]);
+    // One search serves every session watching the conversation.
+    expect(slack.replySearches).toEqual(["C7>1000.000000"]);
+    expect(watch.takeUpdates("s2")!.updates[0]!.messages).toEqual([answer]);
+  });
+
+  it("keeps waiting replies when the session reads the conversation's history again", async () => {
+    // Reading the history does not show thread replies, so it doesn't mark them seen.
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C7",
+      label: "Group DM",
+      seenTs: "900.000001",
+    });
+    slack.channel.set("C7", [message("1050.000001")]);
+    slack.replies.set("C7", [reply("1100.000001", "950.000001")]);
+    now += 60_000;
+    await watch.poll();
+    watch.recordRead("s1", {
+      channelId: "C7",
+      label: "Group DM",
+      seenTs: "1200.000001",
+    });
+    expect(watch.takeUpdates("s1")!.updates[0]!.messages).toEqual([reply("1100.000001", "950.000001")]);
+  });
+
+  it("starts following replies at the first check for a watch saved before replies were followed", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C7",
+      label: "Group DM",
+      seenTs: "900.000001",
+    });
+    await watch.flush();
+    const saved = JSON.parse(await readFile(join(root, "watch.json"), "utf-8"));
+    delete saved.conversations[0].repliesAfter;
+    await writeFile(join(root, "watch.json"), JSON.stringify(saved));
+
+    const restarted = makeWatch();
+    await restarted.load();
+    now += 60 * 60_000;
+    slack.replies.set("C7", [reply("1100.000001", "950.000001")]);
+    await restarted.poll();
+    expect(slack.replySearches).toEqual(["C7>4600.000000"]);
+    expect(restarted.takeUpdates("s1")).toBeNull();
+  });
+
+  it("searches no replies for a watched thread", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C1",
+      threadTs: "1.000001",
+      label: "eval",
+      seenTs: "1.000001",
+    });
+    await watch.poll();
+    expect(slack.replySearches).toEqual([]);
   });
 });
 
