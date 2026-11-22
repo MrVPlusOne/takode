@@ -269,7 +269,7 @@ describe("formatSlackUpdatesNotice", () => {
     expect(lines[0]).toBe("[Slack updates] 4 new messages in Slack conversations you read.");
     expect(lines[1]).toContain("`slack_read_thread`");
     expect(notice).toContain(
-      '`C1/1.000001`: thread "eval proposal", read in q-12\n\n**Weixin Wu** (16:51 PST)\n> line one\n> line two',
+      '`C1/1.000001`: thread "eval proposal", read in q-12\n\n**Weixin Wu** 16:51 PST\n> line one\n> line two',
     );
     expect(notice).toContain("+2 newer messages not shown.");
     expect(notice).toContain('`D1`: direct messages "@Yang Zou"');
@@ -298,43 +298,88 @@ describe("formatSlackUpdatesNotice", () => {
     expect(notice).toContain("`C1/5.000001` · [Open in Slack](https://acme.slack.com/archives/C1/p5000001)");
   });
 
-  it("shows where a direct or group conversation's messages sit among its threads", () => {
-    // Thread replies in a group DM arrive with the conversation; each names its
-    // thread by the ID `slack_read_thread` takes, and a message that started a
-    // thread says how many replies it has, so the agent sees where discussion went.
+  it("groups replies under their thread and gives each date and time zone once", () => {
+    // Jiayi (Nov 21): with many replies in one thread, every line repeated the
+    // thread ID, the date and the time zone. A reply now follows the message
+    // that started its thread (or one `In thread` line naming it), and a time
+    // carries its date and zone only when they change.
+    const at = (clock: string, date = "2026-11-21") => `${date} ${clock} PST`;
     const update = {
       channelId: "C7",
       label: "Group DM",
       messages: [
+        { ts: "30.000001", author: "Cleo Ito", time: at("23:35:18"), text: "older thread", threadTs: "5.000001" },
+        { ts: "10.000001", author: "Ada Park", time: at("23:25:28"), text: "why?", replies: 1 },
+        { ts: "20.000001", author: "Ben Ortiz", time: at("23:27:47"), text: "no idea", threadTs: "10.000001" },
         {
-          ts: "10.000001",
-          author: "Junhong Shen",
-          time: "14:20 PST",
-          text: "rebuild 12b->77b?",
-          replies: 15,
-        },
-        {
-          ts: "20.000001",
-          author: "Wenxu Mao",
-          time: "15:44 PST",
-          text: "no restart",
+          ts: "40.000001",
+          author: "Ben Ortiz",
+          time: at("00:02:02", "2026-11-22"),
+          text: "reverted",
           threadTs: "10.000001",
         },
+        { ts: "50.000001", author: "Ada Park", time: at("00:05:00", "2026-11-22"), text: "thanks", replies: 4 },
       ],
       omitted: 0,
       introduce: false,
     };
-    const notice = formatSlackUpdatesNotice([update], { explain: false });
-    expect(notice).toContain("**Junhong Shen** (14:20 PST, 15 replies in thread `C7/10.000001`)");
-    expect(notice).toContain("**Wenxu Mao** (15:44 PST, in thread `C7/10.000001`)");
+    expect(formatSlackUpdatesNotice([update], { explain: false })).toBe(
+      [
+        "[Slack updates] 5 new messages in Slack conversations you read.",
+        "",
+        "`C7`",
+        "",
+        // Its replies follow, so Slack's earlier reply count is left out.
+        "**Ada Park** 2026-11-21 23:25 PST · thread `C7/10.000001`",
+        "> why?",
+        "",
+        "↳ **Ben Ortiz** 23:27",
+        "> no idea",
+        "",
+        "↳ **Ben Ortiz** 2026-11-22 00:02 PST",
+        "> reverted",
+        "",
+        "In thread `C7/5.000001`:",
+        "",
+        "↳ **Cleo Ito** 2026-11-21 23:35 PST",
+        "> older thread",
+        "",
+        "**Ada Park** 2026-11-22 00:05 PST · 4 replies in thread `C7/50.000001`",
+        "> thanks",
+      ].join("\n"),
+    );
     // When the first new message is a reply, the feed's link opens it in its thread.
-    const replyFirst = { ...update, messages: [update.messages[1]!] };
-    expect(
-      formatSlackUpdatesNotice([replyFirst], {
-        explain: false,
-        linkOrigin: "https://acme.slack.com",
-      }),
-    ).toContain("[Open in Slack](https://acme.slack.com/archives/C7/p20000001?thread_ts=10.000001&cid=C7)");
+    const replyFirst = { ...update, messages: [update.messages[2]!] };
+    expect(formatSlackUpdatesNotice([replyFirst], { explain: false, linkOrigin: "https://acme.slack.com" })).toContain(
+      "[Open in Slack](https://acme.slack.com/archives/C7/p20000001?thread_ts=10.000001&cid=C7)",
+    );
+  });
+
+  it("gives a date once across conversations, and again when the time zone changes", () => {
+    const message = (ts: string, time: string) => ({ ts, author: "Yang Zou", time, text: "hi" });
+    const notice = formatSlackUpdatesNotice(
+      [
+        {
+          channelId: "D1",
+          label: "DM",
+          messages: [message("1.000001", "2026-11-21 09:00:00 PST")],
+          omitted: 0,
+          introduce: false,
+        },
+        {
+          channelId: "C1",
+          threadTs: "2.000001",
+          label: "eval",
+          messages: [message("3.000001", "2026-11-21 09:05:00 PST"), message("4.000001", "2026-11-21 12:06:00 EST")],
+          omitted: 0,
+          introduce: false,
+        },
+      ],
+      { explain: false },
+    );
+    expect(notice).toContain("**Yang Zou** 2026-11-21 09:00 PST");
+    expect(notice).toContain("**Yang Zou** 09:05\n");
+    expect(notice).toContain("**Yang Zou** 2026-11-21 12:06 EST");
   });
 
   it("carries only the conversation ID and new messages in a repeated update", () => {
@@ -346,7 +391,7 @@ describe("formatSlackUpdatesNotice", () => {
         "",
         "`C1/1.000001`",
         "",
-        "**Weixin Wu** (16:51 PST)",
+        "**Weixin Wu** 16:51 PST",
         "> line one",
         "> line two",
       ].join("\n"),

@@ -34,6 +34,7 @@ import {
   PlaygroundLandingQueueMessage,
   PlaygroundSessionRecoveryMessage,
   PlaygroundSkillChangeMessage,
+  PlaygroundSlackThreadRepliesMessage,
   PlaygroundSlackUpdatesMessage,
 } from "./SystemNoticePlaygroundStates.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
@@ -747,6 +748,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Slack updates: a repeated update of the same thread">
             <PlaygroundSlackUpdatesMessage repeat />
+          </Card>
+          <Card label="Slack updates: many replies in a group DM's threads">
+            <PlaygroundSlackThreadRepliesMessage />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />

@@ -202,11 +202,13 @@ export function formatSlackUpdatesNotice(
   if (options.explain) {
     lines.push(
       "Only messages you have not seen are shown, under the conversation's ID: `<channel_id>/<message_ts>` for a thread " +
-        "(read it all with `slack_read_thread`), or a direct or group message conversation's `<channel_id>` (`slack_read_channel`), " +
-        "whose thread replies are shown with their thread's ID. " +
+        "(read it all with `slack_read_thread`), or a direct or group message conversation's `<channel_id>` (`slack_read_channel`). " +
+        "Replies (↳) follow the message that started their thread, or an `In thread <id>` line, and a time without a date is on the date shown last. " +
         "Act on them only if they change your work, and run `takode slack stop <id>` once its topic is closed.",
     );
   }
+  // A time repeats its date and time zone only when they differ from the last time shown.
+  const clock = { day: "" };
   for (const update of updates) {
     const id = `\`${slackConversationId(update)}\``;
     const intro = update.introduce
@@ -214,13 +216,21 @@ export function formatSlackUpdatesNotice(
       : "";
     const link = options.linkOrigin ? ` · [Open in Slack](${slackUpdateUrl(options.linkOrigin, update)})` : "";
     lines.push("", `${id}${intro}${link}`);
-    for (const message of update.messages) {
-      // A blank line ends the quote above, or Markdown folds the next line into it.
-      lines.push(
-        "",
-        `**${message.author || "Someone"}** (${message.time}${threadNote(update, message)})`,
-        quote(message.text),
-      );
+    for (const entry of threadEntries(update)) {
+      const threadId = `\`${update.channelId}/${entry.threadTs}\``;
+      if (entry.message) {
+        // With its replies below, Slack's earlier reply count would only confuse.
+        const note =
+          entry.replies.length > 0
+            ? ` · thread ${threadId}`
+            : entry.message.replies
+              ? ` · ${plural(entry.message.replies, "reply", "replies")} in thread ${threadId}`
+              : "";
+        lines.push(...messageLines(entry.message, clock, "", note));
+      } else {
+        lines.push("", `In thread ${threadId}:`);
+      }
+      for (const reply of entry.replies) lines.push(...messageLines(reply, clock, "↳ ", ""));
     }
     if (update.omitted > 0) lines.push("", `+${plural(update.omitted, "newer message")} not shown.`);
   }
@@ -247,17 +257,66 @@ export function parseSlackPermalinkOrigin(content: unknown): string | null {
   }
 }
 
+/** One message and the replies that follow it in a notice. */
+interface ThreadEntry {
+  /** The message, absent for replies whose thread's first message is not in the update. */
+  message?: SlackMessage;
+  /** The thread the message started, or the replies' thread. */
+  threadTs: string;
+  replies: SlackMessage[];
+}
+
 /**
- * Where a message of a direct or group conversation sits among its threads:
- * the thread a reply belongs to, or the thread a message started. Messages of
- * a watched thread need no note.
+ * The messages of an update in the order a notice shows them: each message,
+ * followed by the replies in its thread. Replies whose thread started before
+ * the update sit together under their thread, where the first of them came.
+ * A watched thread's messages are all its own and need no grouping.
  */
-function threadNote(update: SlackUpdate, message: SlackMessage): string {
-  if (update.threadTs) return "";
-  if (message.threadTs) return `, in thread \`${update.channelId}/${message.threadTs}\``;
-  if (message.replies)
-    return `, ${plural(message.replies, "reply", "replies")} in thread \`${update.channelId}/${message.ts}\``;
-  return "";
+function threadEntries(update: SlackUpdate): ThreadEntry[] {
+  if (update.threadTs) return update.messages.map((message) => ({ message, threadTs: message.ts, replies: [] }));
+  const entries: ThreadEntry[] = [];
+  const byThread = new Map<string, ThreadEntry>();
+  for (const message of [...update.messages].sort((a, b) => compareSlackTs(a.ts, b.ts))) {
+    if (!message.threadTs) {
+      const entry = { message, threadTs: message.ts, replies: [] };
+      entries.push(entry);
+      byThread.set(message.ts, entry);
+      continue;
+    }
+    let entry = byThread.get(message.threadTs);
+    if (!entry) {
+      entry = { threadTs: message.threadTs, replies: [] };
+      entries.push(entry);
+      byThread.set(message.threadTs, entry);
+    }
+    entry.replies.push(message);
+  }
+  return entries;
+}
+
+/** A message's lines in a notice: who and when, then its text quoted. */
+function messageLines(message: SlackMessage, clock: { day: string }, prefix: string, note: string): string[] {
+  // A blank line ends the quote above, or Markdown folds the next line into it.
+  return [
+    "",
+    `${prefix}**${message.author || "Someone"}** ${shortTime(message.time, clock)}${note}`,
+    quote(message.text),
+  ];
+}
+
+/**
+ * A Slack time (`2026-11-21 23:25:28 PST`) as hours and minutes, with its date
+ * and time zone only when they differ from the time shown before. Other forms
+ * are shown as Slack printed them.
+ */
+function shortTime(time: string, clock: { day: string }): string {
+  const parts = time.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?::\d{2})? (\S+)$/);
+  if (!parts) return time;
+  const [, date, hoursMinutes, zone] = parts;
+  const day = `${date} ${zone}`;
+  if (day === clock.day) return hoursMinutes!;
+  clock.day = day;
+  return `${date} ${hoursMinutes} ${zone}`;
 }
 
 /**

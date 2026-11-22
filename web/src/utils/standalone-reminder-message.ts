@@ -265,13 +265,15 @@ function buildStoppedBackgroundTasksReminder(content: string): SystemReminderVie
 
 /**
  * The notice starts "[Slack updates] 3 new messages ..." and lists each new
- * message under a "**<author>** (<time>)" line; the chip names who wrote with
- * the message count beside them. Conversation IDs stay in the detail.
+ * message under a "**<author>** <time>" line ("↳ **<author>** <time>" for a
+ * thread reply; notices before Nov 22, 2026 put the time in parentheses); the
+ * chip names who wrote with the message count beside them. Conversation IDs
+ * stay in the detail.
  */
 function buildSlackUpdatesReminder(content: string): SystemReminderViewModel {
   const body = content.startsWith(SLACK_UPDATES_TAG) ? content.slice(SLACK_UPDATES_TAG.length).trimStart() : content;
   const count = body.match(/^(\d+) new messages?\b/)?.[1];
-  const authors = [...new Set([...body.matchAll(/^\*\*(.+?)\*\* \(/gm)].map((match) => match[1]))];
+  const authors = [...new Set([...body.matchAll(/^(?:↳ )?\*\*(.+?)\*\* /gm)].map((match) => match[1]))];
   return {
     kind: "slack-updates",
     title: "Slack updates",

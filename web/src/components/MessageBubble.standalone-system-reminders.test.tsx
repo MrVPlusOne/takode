@@ -489,4 +489,47 @@ describe("MessageBubble standalone system reminder messages", () => {
     fireEvent.click(chip);
     expect(screen.getByText(/Let's do both/)).toBeTruthy();
   });
+
+  it("names thread repliers in a Slack updates chip, and authors of notices written before replies were grouped", () => {
+    // Replies show as "↳ **Name** 23:27" under their thread; notices already in
+    // history put the time in parentheses, "**Name** (16:51 PST)".
+    const grouped = formatSlackUpdatesNotice(
+      [
+        {
+          channelId: "C7",
+          label: "Group DM",
+          messages: [
+            { ts: "10.000001", author: "Ada Park", time: "2026-11-21 23:25:28 PST", text: "why?" },
+            {
+              ts: "20.000001",
+              author: "Ben Ortiz",
+              time: "2026-11-21 23:27:47 PST",
+              text: "no idea",
+              threadTs: "10.000001",
+            },
+          ],
+          omitted: 0,
+          introduce: false,
+        },
+      ],
+      { explain: false },
+    );
+    const earlier =
+      "[Slack updates] 1 new message in Slack conversations you read.\n\n`C1/1.000001`\n\n**Cleo Ito** (16:51 PST)\n> hi";
+    render(
+      <>
+        <MessageBubble
+          message={makeMessage({ id: "grouped", content: grouped, agentSource: SLACK_UPDATES_SOURCE })}
+          showTimestamp={false}
+        />
+        <MessageBubble
+          message={makeMessage({ id: "earlier", content: earlier, agentSource: SLACK_UPDATES_SOURCE })}
+          showTimestamp={false}
+        />
+      </>,
+    );
+    const chips = screen.getAllByTestId("standalone-system-reminder-chip");
+    expect(chips[0]!.textContent).toContain("Slack updates · Ada Park, Ben Ortiz");
+    expect(chips[1]!.textContent).toContain("Slack updates · Cleo Ito");
+  });
 });

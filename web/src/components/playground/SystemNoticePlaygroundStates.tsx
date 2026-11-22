@@ -222,3 +222,61 @@ export function PlaygroundSlackUpdatesMessage({ repeat }: { repeat: boolean }) {
   };
   return <MessageBubble message={message} sessionId="playground-slack-updates" showTimestamp={false} />;
 }
+
+/**
+ * A watched group DM whose discussion moved into threads: one message started
+ * a thread with replies in the same update, another thread's first message is
+ * older, and the last reply arrives after midnight.
+ */
+export function PlaygroundSlackThreadRepliesMessage() {
+  const channelId = "C0B7GROUPDM";
+  const parentTs = "1795332328.445269";
+  const olderThreadTs = "1795320000.100100";
+  const at = (clock: string, date = "2026-11-21") => `${date} ${clock} PST`;
+  const reply = (ts: string, author: string, clock: string, text: string, threadTs = parentTs, date?: string) => ({
+    ts,
+    author,
+    time: at(clock, date),
+    text,
+    threadTs,
+  });
+  const updates = [
+    {
+      channelId,
+      label: "Group DM",
+      introduce: false,
+      messages: [
+        {
+          ts: parentTs,
+          author: "Ada Park",
+          time: at("23:25:28"),
+          text: "Why does the grader start its verifier session while the candidate starts? Looks like over-engineering.",
+          replies: 3,
+        },
+        reply("1795332338.000100", "Ada Park", "23:25:38", "Ben, do you have context?"),
+        reply("1795332467.000200", "Ben Ortiz", "23:27:47", "Not sure what it is for."),
+        reply("1795332504.000300", "Ben Ortiz", "23:28:24", "So the grader starts when the rollout starts?"),
+        reply("1795332806.000400", "Ben Ortiz", "23:33:26", "Probably because pulling the image is slow."),
+        reply("1795332811.000500", "Ben Ortiz", "23:33:31", "We could do without it."),
+        reply("1795332918.000600", "Cleo Ito", "23:35:18", "No idea, someone else approved it.", olderThreadTs),
+        reply(
+          "1795333000.000700",
+          "Ada Park",
+          "23:36:40",
+          "I'll ask the author directly, and revert if nothing special.",
+        ),
+        reply("1795333057.000800", "Cleo Ito", "23:37:37", "Fine by me."),
+        reply("1795333322.000900", "Ben Ortiz", "00:02:02", "Reverted.", parentTs, "2026-11-22"),
+      ],
+      omitted: 0,
+    },
+  ];
+  const message: ChatMessage = {
+    id: "playground-slack-thread-replies",
+    role: "user",
+    content: formatSlackUpdatesNotice(updates, { explain: false, linkOrigin: "https://acme.enterprise.slack.com" }),
+    timestamp: Date.now() - 4_000,
+    agentSource: SLACK_UPDATES_SOURCE,
+  };
+  return <MessageBubble message={message} sessionId="playground-slack-thread-replies" showTimestamp={false} />;
+}
