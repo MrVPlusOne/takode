@@ -66,7 +66,6 @@ afterEach(async () => {
 async function transcribe(fields: Record<string, string>) {
   const form = new FormData();
   form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
-  form.append("backend", "openai");
   form.append("sessionId", "s1");
   for (const [key, value] of Object.entries(fields)) form.append(key, value);
   return app.request("/api/transcribe", { method: "POST", body: form });

@@ -69,7 +69,6 @@ describe("annotation transcription requests", () => {
     };
     const form = new FormData();
     form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
-    form.append("backend", "openai");
     form.append("sessionId", "session-1");
     form.append("annotationContext", JSON.stringify(context));
     form.append("composerText", "");
@@ -93,7 +92,6 @@ describe("annotation transcription requests", () => {
       );
     const form = new FormData();
     form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
-    form.append("backend", "openai");
     form.append("sessionId", "session-1");
     form.append("mode", mode);
     form.append("composerText", "Only this comment can change");
@@ -138,7 +136,6 @@ describe("annotation transcription requests", () => {
       );
     const form = new FormData();
     form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
-    form.append("backend", "openai");
     form.append("sessionId", "session-1");
     form.append(
       "annotationContext",
@@ -165,7 +162,6 @@ describe("annotation transcription requests", () => {
       );
     const form = new FormData();
     form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
-    form.append("backend", "openai");
     form.append("sessionId", "session-1");
     form.append("mode", "edit");
     form.append("composerText", "Original comment");
@@ -177,35 +173,5 @@ describe("annotation transcription requests", () => {
     const body = await res.text();
     expect(body).toContain("Voice edit did not finish");
     expect(body).not.toContain('"text":"TRUNCATED_REPLACEMENT"');
-  });
-
-  it("passes comment context to Gemini's existing audio/text request", async () => {
-    mockVoiceSettings({ enhancementEnabled: false });
-    vi.stubEnv("GOOGLE_API_KEY", "fixture-key");
-    try {
-      vi.mocked(fetch).mockResolvedValueOnce(
-        new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "Spoken comment" }] } }] })),
-      );
-      const form = new FormData();
-      form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
-      form.append("backend", "gemini");
-      form.append("sessionId", "session-1");
-      form.append(
-        "annotationContext",
-        JSON.stringify({
-          activeId: "active",
-          selectedText: "CacheTerm",
-          mainComposerText: "Read-only main",
-          otherAnnotations: [],
-        }),
-      );
-      const res = await app.request("/api/transcribe", { method: "POST", body: form });
-      expect(await res.text()).toContain("Spoken comment");
-      const request = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]!.body));
-      expect(request.contents[0].parts[1].text).toContain("Read-only main");
-      expect(request.contents[0].parts[0]).toHaveProperty("inline_data");
-    } finally {
-      vi.unstubAllEnvs();
-    }
   });
 });

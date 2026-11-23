@@ -1108,7 +1108,6 @@ describe("transcribe", () => {
     const result = await api.transcribe(shortAudio, {
       mode: "dictation",
       sessionId: "session-1",
-      backend: "openai",
       onPhase,
     });
 
@@ -1120,7 +1119,7 @@ describe("transcribe", () => {
     });
 
     const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1");
+    expect(url).toBe("/api/transcribe?mode=dictation&sessionId=session-1");
     expect(opts?.method).toBe("POST");
     expect(opts?.signal).toBeInstanceOf(AbortSignal);
     expect(opts?.body).toBe(shortAudio);

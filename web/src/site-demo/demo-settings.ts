@@ -38,7 +38,7 @@ export const DEMO_SETTINGS = {
   transcriptionConfig: {
     baseUrl: "https://api.openai.com/v1",
     enhancementEnabled: true,
-    enhancementModel: "gpt-5-mini",
+    enhancementModel: "gpt-5.4",
     customVocabulary: "",
     sttModel: "gpt-transcribe",
     sttLanguageHints: [],

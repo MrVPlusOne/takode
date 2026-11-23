@@ -11,7 +11,11 @@ import {
 import { api, type TranscriptionConfig } from "../api.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { GPT_TRANSCRIBE_LANGUAGE_HINTS } from "../../shared/transcription-language-hints.js";
-import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../../shared/transcription-models.js";
+import {
+  DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL,
+  DEFAULT_TRANSCRIPTION_STT_MODEL,
+  TRANSCRIPTION_STT_MODELS,
+} from "../../shared/transcription-models.js";
 import { SettingsToggle } from "./settings-controls.js";
 import { EnhancementTester } from "./EnhancementTester.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
@@ -408,7 +412,7 @@ export function SettingsVoiceTranscriptionSection({
             type="text"
             value={transcriptionModel}
             onChange={(e) => setTranscriptionModel(e.target.value)}
-            placeholder="gpt-5-mini"
+            placeholder={DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL}
             className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
           />
         </div>

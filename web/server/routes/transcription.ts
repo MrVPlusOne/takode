@@ -2,9 +2,7 @@ import { readAnnotationVoiceContext, type AnnotationVoiceContext } from "../../s
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import {
-  transcribeWithGemini,
   transcribeWithOpenai,
-  getAvailableBackends,
   getTranscriptionStatus,
   resolveAudioUploadFormat,
   resolveOpenAIKey,
@@ -29,6 +27,7 @@ import {
 } from "../transcription-enhancer.js";
 import { buildSttPrompt, buildTranscriptionContext } from "../transcription-prompts.js";
 import * as sessionNames from "../session-names.js";
+import { DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL } from "../../shared/transcription-models.js";
 import { GPT_TRANSCRIBE_STT_MODEL, getSettings } from "../settings-manager.js";
 import type { RouteContext } from "./context.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
@@ -661,7 +660,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       version: 1 as const,
       mode,
       enhancementMode: config.enhancementMode ?? "default",
-      model: config.enhancementModel || "gpt-5-mini",
+      model: config.enhancementModel || DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL,
       conversationContext: sessionContext.messageHistory
         ? buildTranscriptionContext(sessionContext.messageHistory, { everyReply: sessionContext.everyReply })
         : "",
@@ -903,7 +902,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const settings = getSettings();
     const enhancementMode = normalizeReplayEnhancementMode(body.enhancementMode);
     const enhancementModel =
-      normalizeReplayModel(body.enhancementModel) || settings.transcriptionConfig.enhancementModel || "gpt-5-mini";
+      normalizeReplayModel(body.enhancementModel) ||
+      settings.transcriptionConfig.enhancementModel ||
+      DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL;
     const replayConfig = {
       ...settings.transcriptionConfig,
       enhancementEnabled: true,
@@ -976,7 +977,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     let rawMode = "dictation";
     let composerText: string | undefined;
     let annotationContext: AnnotationVoiceContext | undefined;
-    let requestedBackend: string | undefined;
     let rawThreadKey: string | undefined;
     let rawThreadTitle: string | undefined;
     let rawFocusedContext: string | undefined;
@@ -1002,7 +1002,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       sessionId = typeof body["sessionId"] === "string" ? body["sessionId"] : undefined;
       rawMode = typeof body["mode"] === "string" ? body["mode"] : "dictation";
       composerText = typeof body["composerText"] === "string" ? body["composerText"] : undefined;
-      requestedBackend = typeof body["backend"] === "string" ? body["backend"] : undefined;
       rawThreadKey = typeof body["threadKey"] === "string" ? body["threadKey"] : undefined;
       rawThreadTitle = typeof body["threadTitle"] === "string" ? body["threadTitle"] : undefined;
       rawFocusedContext = typeof body["focusedContext"] === "string" ? body["focusedContext"] : undefined;
@@ -1018,7 +1017,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       sessionId = c.req.query("sessionId") || undefined;
       rawMode = c.req.query("mode") || "dictation";
       composerText = c.req.query("composerText") || undefined;
-      requestedBackend = c.req.query("backend") || undefined;
       rawThreadKey = c.req.query("threadKey") || undefined;
       rawThreadTitle = c.req.query("threadTitle") || undefined;
       rawFocusedContext = c.req.query("focusedContext") || undefined;
@@ -1039,8 +1037,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const threadKey = normalizeTranscriptionThreadKey(rawThreadKey);
     const threadTitle = normalizeTranscriptionThreadTitle(rawThreadTitle);
     const focusedContext = normalizeTranscriptionFocusedContext(rawFocusedContext);
-    const { default: defaultBackend } = getAvailableBackends();
-    const backend = requestedBackend || defaultBackend;
+    const backend = resolveOpenAIKey() ? "openai" : undefined;
     const uploadTiming = {
       uploadDurationMs,
       audioSizeBytes: buf.length,
@@ -1116,7 +1113,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
     if (!backend) {
       const message =
-        "No transcription backend available. Configure an OpenAI API key in Settings → Voice Transcription, or set OPENAI_API_KEY / GOOGLE_API_KEY in your environment.";
+        "No transcription backend available. Configure an OpenAI API key in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment.";
       await recordFailedUpload(message, "validation");
       return c.json(
         {
@@ -1216,7 +1213,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         const settings = getSettings();
         const transcriptionConfig = settings.transcriptionConfig;
         const configuredSttModel = transcriptionConfig.sttModel || GPT_TRANSCRIBE_STT_MODEL;
-        const usesGptTranscribeContext = backend === "openai" && configuredSttModel === GPT_TRANSCRIBE_STT_MODEL;
+        const usesGptTranscribeContext = configuredSttModel === GPT_TRANSCRIBE_STT_MODEL;
         const sessionContext = getTranscriptionSessionContext(sessionId, threadKey, threadTitle);
         // The dictated thread is left out of the activity: its conversation is in the prompts already.
         const spaceContext = await getTranscriptionWorkspace(sessionId, threadKey ?? "main").catch((error: unknown) => {
@@ -1295,72 +1292,43 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         debugSttPrompt = sttPrompt;
         debugSttContext = sttContext;
         debugSttReplayContext = sttReplayContext;
-        debugSttModel = backend === "openai" ? configuredSttModel : backend;
+        debugSttModel = configuredSttModel;
         serverTiming.contextBuildDurationMs = Date.now() - contextBuildStart;
 
         const sttStart = Date.now();
 
-        if (backend === "gemini") {
-          const apiKey = process.env.GOOGLE_API_KEY;
-          if (!apiKey) {
-            const message = "GOOGLE_API_KEY not set in environment";
-            await recordFailedUpload(message, "transcribe", { sttModel: "gemini", sttPrompt });
-            await stream.writeSSE({
-              event: "error",
-              data: JSON.stringify({ error: message }),
-            });
-            return;
-          }
-          rawText = await transcribeWithGemini(
-            buf,
-            uploadFormat.mimeType,
-            apiKey,
-            annotationContext ? sttPrompt : undefined,
-          );
-          sttModel = "gemini";
-        } else if (backend === "openai") {
-          const apiKey = resolveOpenAIKey();
-          if (!apiKey) {
-            const message =
-              "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment.";
-            await recordFailedUpload(message, "transcribe", {
-              sttModel: configuredSttModel,
-              sttPrompt,
-              sttContext,
-              sttReplayContext,
-            });
-            await stream.writeSSE({
-              event: "error",
-              data: JSON.stringify({ error: message }),
-            });
-            return;
-          }
-          rawText = await transcribeWithOpenai(buf, uploadFormat.mimeType, apiKey, {
-            sttPrompt: sttPrompt || undefined,
-            fileName: audioFileName,
+        const sttApiKey = resolveOpenAIKey();
+        if (!sttApiKey) {
+          const message =
+            "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment.";
+          await recordFailedUpload(message, "transcribe", {
             sttModel: configuredSttModel,
-            baseUrl: transcriptionConfig.baseUrl,
-            keywords: sanitizedKeywords.keywords,
-            languageHints: sttLanguageHints,
+            sttPrompt,
+            sttContext,
+            sttReplayContext,
           });
-          sttModel = configuredSttModel;
-        } else {
-          await recordFailedUpload(`Unknown backend: ${backend}`, "validation", { sttModel: backend, sttPrompt });
-          await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Unknown backend: ${backend}` }) });
+          await stream.writeSSE({
+            event: "error",
+            data: JSON.stringify({ error: message }),
+          });
           return;
         }
+        rawText = await transcribeWithOpenai(buf, uploadFormat.mimeType, sttApiKey, {
+          sttPrompt: sttPrompt || undefined,
+          fileName: audioFileName,
+          sttModel: configuredSttModel,
+          baseUrl: transcriptionConfig.baseUrl,
+          keywords: sanitizedKeywords.keywords,
+          languageHints: sttLanguageHints,
+        });
+        sttModel = configuredSttModel;
 
         const sttDurationMs = Date.now() - sttStart;
         debugSttModel = sttModel;
         debugRawTranscript = rawText;
 
         const enhancementKey = resolveOpenAIKey();
-        const willEnhanceDictation = !!(
-          sessionId &&
-          usedBackend === "openai" &&
-          settings.transcriptionConfig.enhancementEnabled &&
-          enhancementKey
-        );
+        const willEnhanceDictation = !!(sessionId && settings.transcriptionConfig.enhancementEnabled && enhancementKey);
         const willRunVoiceEdit = mode === "edit";
         const willRunVoiceAppend = mode === "append";
         const nextPhase = willRunVoiceEdit

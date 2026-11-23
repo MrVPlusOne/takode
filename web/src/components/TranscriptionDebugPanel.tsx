@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { TranscriptionLogIndexEntry, TranscriptionLogEntry, TranscriptionReplayVariant } from "../api.js";
-import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../../shared/transcription-models.js";
+import {
+  DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL,
+  DEFAULT_TRANSCRIPTION_STT_MODEL,
+  TRANSCRIPTION_STT_MODELS,
+} from "../../shared/transcription-models.js";
 import { TranscriptDiffComparison } from "./TranscriptDiffComparison.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 
@@ -107,7 +111,7 @@ export function TranscriptionDebugPanel({
   const [openingRecording, setOpeningRecording] = useState(false);
   const [deletingRecording, setDeletingRecording] = useState(false);
   const [replaySttModel, setReplaySttModel] = useState(DEFAULT_TRANSCRIPTION_STT_MODEL);
-  const [replayEnhancementModel, setReplayEnhancementModel] = useState("gpt-5-mini");
+  const [replayEnhancementModel, setReplayEnhancementModel] = useState(DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL);
   const [replayEnhancementMode, setReplayEnhancementMode] = useState<"default" | "bullet">("default");
   const [replayRunning, setReplayRunning] = useState<"stt" | "enhancement" | null>(null);
   const [replayError, setReplayError] = useState("");
@@ -192,7 +196,7 @@ export function TranscriptionDebugPanel({
     setReplaySttModel(
       missingSourceModel ? DEFAULT_TRANSCRIPTION_STT_MODEL : expandedEntry.sttModel || DEFAULT_TRANSCRIPTION_STT_MODEL,
     );
-    setReplayEnhancementModel(expandedEntry.enhancement?.model || "gpt-5-mini");
+    setReplayEnhancementModel(expandedEntry.enhancement?.model || DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL);
     setReplayEnhancementMode("default");
   }, [expandedEntry?.id]);
 

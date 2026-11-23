@@ -62,6 +62,7 @@ import {
 } from "../shared/takode-constants.js";
 
 import {
+  DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL,
   DEFAULT_TRANSCRIPTION_STT_MODEL,
   GPT_TRANSCRIBE_STT_MODEL as SHARED_GPT_TRANSCRIBE_STT_MODEL,
   TRANSCRIPTION_STT_MODELS,
@@ -237,7 +238,7 @@ export interface TranscriptionConfig {
   baseUrl: string;
   /** Whether context-aware LLM enhancement is enabled */
   enhancementEnabled: boolean;
-  /** Model to use for enhancement (e.g. "gpt-5-mini", "gpt-4o") */
+  /** Model to use for enhancement (e.g. "gpt-5.4", "gpt-4o") */
   enhancementModel: string;
   /** Comma-separated custom vocabulary terms for STT recognition (e.g. "Takode, LiteLLM, worktree") */
   customVocabulary?: string;
@@ -312,7 +313,7 @@ let settings: CompanionSettings = {
     apiKey: "",
     baseUrl: "https://api.openai.com/v1",
     enhancementEnabled: true,
-    enhancementModel: "gpt-5-mini",
+    enhancementModel: DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL,
     customVocabulary: "",
     enhancementMode: "default",
     enhancementInstructions: "",
@@ -471,7 +472,8 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
       ...(typeof c.testApiKey === "string" && c.testApiKey ? { testApiKey: c.testApiKey } : {}),
       baseUrl: typeof c.baseUrl === "string" ? c.baseUrl : "https://api.openai.com/v1",
       enhancementEnabled: typeof c.enhancementEnabled === "boolean" ? c.enhancementEnabled : true,
-      enhancementModel: typeof c.enhancementModel === "string" ? c.enhancementModel : "gpt-5-mini",
+      enhancementModel:
+        typeof c.enhancementModel === "string" ? c.enhancementModel : DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL,
       customVocabulary: typeof c.customVocabulary === "string" ? c.customVocabulary : "",
       sttModel,
       sttLanguageHints: normalizeGptTranscribeLanguageHints(c.sttLanguageHints),
@@ -484,7 +486,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
     apiKey: "",
     baseUrl: "https://api.openai.com/v1",
     enhancementEnabled: true,
-    enhancementModel: "gpt-5-mini",
+    enhancementModel: DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL,
     customVocabulary: "",
     sttModel: DEFAULT_STT_MODEL,
     sttLanguageHints: [],

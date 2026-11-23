@@ -88,7 +88,6 @@ async function transcribe(extra: Record<string, string> = {}) {
   vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ text: "ask when she about the condo job" })));
   const form = new FormData();
   form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
-  form.append("backend", "openai");
   form.append("sessionId", "session-1");
   for (const [key, value] of Object.entries(extra)) form.append(key, value);
   const res = await app.request("/api/transcribe", { method: "POST", body: form });

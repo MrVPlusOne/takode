@@ -1,7 +1,7 @@
 /**
- * Audio transcription service supporting Gemini and OpenAI STT backends.
+ * Audio transcription service using OpenAI-compatible STT.
  *
- * Both functions accept raw audio as a Buffer and return the transcription text.
+ * Accepts raw audio as a Buffer and returns the transcription text.
  * API keys are resolved via resolveOpenAIKey() (settings → env var → namer key).
  */
 
@@ -134,60 +134,6 @@ export function resolveAudioUploadFormat(
 }
 
 /**
- * Transcribe audio using Google Gemini API (inline base64 audio).
- * Uses gemini-2.0-flash for fast, cost-effective transcription.
- */
-export async function transcribeWithGemini(
-  audioBuffer: Buffer,
-  mimeType: string,
-  apiKey: string,
-  sttPrompt?: string,
-): Promise<string> {
-  const base64Audio = audioBuffer.toString("base64");
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: base64Audio,
-                },
-              },
-              {
-                text: sttPrompt || "Transcribe this audio. Return only the transcription text, nothing else.",
-              },
-            ],
-          },
-        ],
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    throw new Error(`Gemini API error (${response.status}): ${errorBody || response.statusText}`);
-  }
-
-  const data = (await response.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error("Gemini returned no transcription text");
-  }
-
-  return text.trim();
-}
-
-/**
  * Transcribe audio using OpenAI's audio transcription API (multipart form upload).
  * @param sttPrompt Optional prompt to guide the STT model's vocabulary recognition.
  */
@@ -285,20 +231,6 @@ export function resolveOpenAIKey(): string | null {
   return null;
 }
 
-/** Check which transcription backends are available (settings + env vars). */
-export function getAvailableBackends(): {
-  backends: string[];
-  default: string | null;
-} {
-  const backends: string[] = [];
-  if (process.env.GOOGLE_API_KEY) backends.push("gemini");
-  if (resolveOpenAIKey()) backends.push("openai");
-  return {
-    backends,
-    default: backends[0] ?? null,
-  };
-}
-
 /** Get transcription status for the new API shape. */
 export function getTranscriptionStatus(): {
   available: boolean;
@@ -308,8 +240,8 @@ export function getTranscriptionStatus(): {
   const key = resolveOpenAIKey();
   const settings = getSettings();
   return {
-    available: !!key || !!process.env.GOOGLE_API_KEY,
+    available: !!key,
     enhancementEnabled: !!key && settings.transcriptionConfig.enhancementEnabled,
-    backend: key ? "openai" : process.env.GOOGLE_API_KEY ? "gemini" : null,
+    backend: key ? "openai" : null,
   };
 }

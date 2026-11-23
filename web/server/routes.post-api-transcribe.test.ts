@@ -565,6 +565,37 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("POST /api/transcribe", () => {
+  it("refuses without an OpenAI key, even when GOOGLE_API_KEY is set", async () => {
+    // OpenAI-compatible STT is the only backend: the retired Gemini backend's key must not make
+    // transcription look available, and the request must not reach any provider.
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      namerConfig: { backend: "claude" },
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: false,
+        enhancementModel: "",
+      },
+    } as unknown as ReturnType<typeof settingsManager.getSettings>);
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("GOOGLE_API_KEY", "fixture-key");
+    try {
+      const res = await app.request("/api/transcribe?mode=dictation", {
+        method: "POST",
+        headers: { "Content-Type": "audio/wav" },
+        body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+      });
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("OPENAI_API_KEY");
+      expect(body.error).not.toContain("GOOGLE_API_KEY");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("normalizes mislabeled recorder uploads before calling OpenAI", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
@@ -796,7 +827,7 @@ describe("POST /api/transcribe", () => {
       }),
     );
 
-    const res = await app.request("/api/transcribe?backend=openai&mode=dictation", {
+    const res = await app.request("/api/transcribe?mode=dictation", {
       method: "POST",
       headers: {
         "Content-Type": "audio/wav",
@@ -909,7 +940,7 @@ describe("POST /api/transcribe", () => {
     });
     vi.mocked(fetch).mockRejectedValueOnce(new Error("STT unavailable"));
 
-    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&requestId=voice-failure-1", {
+    const res = await app.request("/api/transcribe?mode=dictation&requestId=voice-failure-1", {
       method: "POST",
       headers: { "Content-Type": "audio/webm", "X-Companion-Audio-Filename": "recording.webm" },
       body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
@@ -997,17 +1028,14 @@ describe("POST /api/transcribe", () => {
       }),
     );
 
-    const res = await app.request(
-      "/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&requestId=voice-request-1",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "audio/wav",
-          "X-Companion-Audio-Filename": "recording.wav",
-        },
-        body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    const res = await app.request("/api/transcribe?mode=dictation&sessionId=session-1&requestId=voice-request-1", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/wav",
+        "X-Companion-Audio-Filename": "recording.wav",
       },
-    );
+      body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
 
     expect(res.status).toBe(200);
     const body = await res.text();
@@ -1096,7 +1124,7 @@ describe("POST /api/transcribe", () => {
       );
 
     const res = await app.request(
-      "/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&requestId=voice-request-enhance-1",
+      "/api/transcribe?mode=dictation&sessionId=session-1&requestId=voice-request-enhance-1",
       {
         method: "POST",
         headers: {
@@ -1399,7 +1427,7 @@ describe("POST /api/transcribe", () => {
         ),
       );
 
-    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1", {
+    const res = await app.request("/api/transcribe?mode=dictation&sessionId=session-1", {
       method: "POST",
       headers: {
         "Content-Type": "audio/wav",
@@ -1447,7 +1475,7 @@ describe("POST /api/transcribe", () => {
         }),
       );
 
-    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1", {
+    const res = await app.request("/api/transcribe?mode=dictation&sessionId=session-1", {
       method: "POST",
       headers: { "Content-Type": "audio/wav", "X-Companion-Audio-Filename": "recording.wav" },
       body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
@@ -1526,7 +1554,7 @@ describe("POST /api/transcribe", () => {
       );
 
     const res = await app.request(
-      "/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=q-1210&threadTitle=q-1210%3A%20Use%20active%20leader%20thread%20tab%20as%20voice%20transcription%20context&focusedContext=Needs-input%20prompt%3A%20Approve%20deployment%3F%0ACurrent%20question%3A%20Run%20execute%3F",
+      "/api/transcribe?mode=dictation&sessionId=session-1&threadKey=q-1210&threadTitle=q-1210%3A%20Use%20active%20leader%20thread%20tab%20as%20voice%20transcription%20context&focusedContext=Needs-input%20prompt%3A%20Approve%20deployment%3F%0ACurrent%20question%3A%20Run%20execute%3F",
       {
         method: "POST",
         headers: {
@@ -1588,7 +1616,7 @@ describe("POST /api/transcribe", () => {
       }),
     );
 
-    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=main", {
+    const res = await app.request("/api/transcribe?mode=dictation&sessionId=session-1&threadKey=main", {
       method: "POST",
       headers: {
         "Content-Type": "audio/wav",
@@ -1657,7 +1685,7 @@ describe("POST /api/transcribe", () => {
       }),
     );
 
-    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=main", {
+    const res = await app.request("/api/transcribe?mode=dictation&sessionId=session-1&threadKey=main", {
       method: "POST",
       headers: {
         "Content-Type": "audio/wav",
@@ -1696,7 +1724,7 @@ describe("POST /api/transcribe", () => {
       }),
     );
 
-    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1", {
+    const res = await app.request("/api/transcribe?mode=dictation&sessionId=session-1", {
       method: "POST",
       headers: {
         "Content-Type": "audio/wav",

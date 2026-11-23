@@ -657,7 +657,7 @@ describe("POST /api/transcribe replay and durable discovery", () => {
     mockVoiceSettings({ sttModel, enhancementEnabled: false, customVocabulary: "SavedTerm", sttLanguageHints: ["en"] });
     const audio = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
     vi.mocked(fetch).mockRejectedValueOnce(new Error("original network failure"));
-    const sourceResponse = await app.request("/api/transcribe?backend=openai&sessionId=session-1", {
+    const sourceResponse = await app.request("/api/transcribe?sessionId=session-1", {
       method: "POST",
       body: audio,
       headers: { "Content-Type": "audio/webm;codecs=opus" },
@@ -824,7 +824,7 @@ describe("POST /api/transcribe replay and durable discovery", () => {
         }),
       );
 
-    const sourceRes = await app.request("/api/transcribe?backend=openai", {
+    const sourceRes = await app.request("/api/transcribe", {
       method: "POST",
       body: sourceAudio,
       headers: {

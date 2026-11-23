@@ -20,6 +20,7 @@ import {
  */
 
 import type { BrowserIncomingMessage } from "./session-types.js";
+import { DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL } from "../shared/transcription-models.js";
 import { getSettings, type TranscriptionConfig } from "./settings-manager.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -118,7 +119,7 @@ export async function enhanceTranscriptFromReplayContext(
   apiKey: string,
   extra?: EnhancementContextInput,
 ): Promise<EnhancementResult> {
-  const model = config.enhancementModel || "gpt-5-mini";
+  const model = config.enhancementModel || DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL;
   const systemPrompt = enhancerSystemPrompt("dictation", config, !!extra?.annotationContext);
   if (!config.enhancementEnabled) {
     return {
@@ -170,7 +171,7 @@ export async function applyVoiceEdit(
   apiKey: string,
   extra?: EnhancementContextInput,
 ): Promise<VoiceEditResult> {
-  const model = config.enhancementModel || "gpt-5-mini";
+  const model = config.enhancementModel || DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL;
   const conversationContext = history ? buildTranscriptionContext(history, { everyReply: extra?.everyReply }) : "";
   const prompt = buildVoiceEditPrompt(
     instructionText,
@@ -224,7 +225,7 @@ export async function applyVoiceAppend(
   apiKey: string,
   extra?: EnhancementContextInput,
 ): Promise<VoiceAppendResult> {
-  const model = config.enhancementModel || "gpt-5-mini";
+  const model = config.enhancementModel || DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL;
   const conversationContext = history ? buildTranscriptionContext(history, { everyReply: extra?.everyReply }) : "";
   const prompt = buildVoiceAppendPrompt(
     rawSpeechText,

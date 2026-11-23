@@ -1,3 +1,4 @@
+import { DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL } from "../shared/transcription-models.js";
 import type { TranscriptionConfig } from "./settings-manager.js";
 const ENHANCEMENT_TIMEOUT_MS = 30_000;
 
@@ -16,7 +17,7 @@ export async function callEnhancementLLM(
   requireComplete = false,
 ): Promise<LLMCallResult> {
   const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = config.enhancementModel || "gpt-5-mini";
+  const model = config.enhancementModel || DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ENHANCEMENT_TIMEOUT_MS);

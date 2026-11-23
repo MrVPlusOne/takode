@@ -18,7 +18,6 @@ const TRANSCRIPTION_REQUEST_BYTES_PER_EXTRA_SECOND = 64 * 1024;
 export interface VoiceTranscriptionResult extends VoiceTranscriptionResultPayload {}
 
 export interface VoiceTranscriptionOptions {
-  backend?: "gemini" | "openai";
   mode?: VoiceTranscriptionMode;
   sessionId?: string;
   threadKey?: string;
@@ -132,7 +131,6 @@ export async function transcribe(audio: Blob, options?: VoiceTranscriptionOption
     ? subscribeTranscriptionProgress(requestId, applyProgressPhase)
     : () => {};
   const query = new URLSearchParams();
-  if (options?.backend) query.set("backend", options.backend);
   if (mode) query.set("mode", mode);
   if (options?.sessionId) query.set("sessionId", options.sessionId);
   if (options?.threadKey) query.set("threadKey", options.threadKey);
@@ -149,7 +147,6 @@ export async function transcribe(audio: Blob, options?: VoiceTranscriptionOption
   } else {
     const form = new FormData();
     form.append("audio", audio, audioFileName);
-    if (options?.backend) form.append("backend", options.backend);
     if (mode) form.append("mode", mode);
     if (options?.sessionId) form.append("sessionId", options.sessionId);
     if (options?.threadKey) form.append("threadKey", options.threadKey);

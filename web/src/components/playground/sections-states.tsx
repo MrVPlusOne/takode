@@ -181,7 +181,7 @@ export function PlaygroundStateSections() {
       {/* ─── Composer — Voice Recording ──────────────────────────────── */}
       <Section
         title="Composer — Voice Recording"
-        description="Microphone button records audio, server transcribes via Gemini or OpenAI Whisper"
+        description="Microphone button records audio, server transcribes via OpenAI speech-to-text"
       >
         <div className="max-w-3xl">
           <PlaygroundMicrophonePicker />

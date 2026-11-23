@@ -10,3 +10,6 @@ export const TRANSCRIPTION_STT_MODELS = [
 
 export const DEFAULT_TRANSCRIPTION_STT_MODEL = GPT_TRANSCRIBE_STT_MODEL;
 export type BuiltInTranscriptionSttModel = (typeof TRANSCRIPTION_STT_MODELS)[number];
+
+/** Default model of the enhancement (cleanup) pass that runs after speech-to-text. */
+export const DEFAULT_TRANSCRIPTION_ENHANCEMENT_MODEL = "gpt-5.4";
