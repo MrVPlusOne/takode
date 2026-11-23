@@ -573,7 +573,8 @@ function ThreadRowButton({
         <span className={`min-w-0 flex-1 truncate text-[13px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
           {row.title}
         </span>
-        <StatusCountDots counts={row.counts} />
+        {/* Only what waits for the user is counted; work going on shows in the ring (Jiayi, Nov 23). */}
+        <StatusCountDots counts={{ ...row.counts, running: 0 }} />
       </div>
       {/* The update starts at the row's left edge, its mark centred under the portrait, so the
           words get the row's width (Jiayi, Nov 3). */}
@@ -603,11 +604,21 @@ const GROUP_RING: Record<ThreadRow["group"], string> = {
 };
 
 /**
+ * The ring's colour: the thread's status, except that a thread still working shows green over blue
+ * (Jiayi, Nov 23: its unread results keep their blue count, and green is shown only as the ring). A
+ * question for the user stays amber.
+ */
+export function ringGroupOf(row: Pick<ThreadRow, "group" | "counts">): ThreadGroupId {
+  return row.group === "new-results" && row.counts.running > 0 ? "in-progress" : row.group;
+}
+
+/**
  * The thread's leader, ringed in the thread's status colour; a plain thread (no quest) carries the
  * new-thread mark on the portrait's corner. The leader is named on hover through the row.
  */
 function ThreadStatusPortrait({ row }: { row: ThreadRow }) {
   const portrait = row.leader.leader.leaderProfilePortrait;
+  const ring = ringGroupOf(row);
   const badge = !row.questId && (
     <span className="flex translate-x-1 translate-y-1 rounded-full bg-cc-bg p-px">
       <NewThreadIcon className="h-2.5 w-2.5 text-cc-primary" />
@@ -616,9 +627,9 @@ function ThreadStatusPortrait({ row }: { row: ThreadRow }) {
   if (!portrait) {
     return (
       <span
-        className={`relative h-5 w-5 shrink-0 rounded-full bg-cc-hover ${GROUP_RING[row.group]}`}
+        className={`relative h-5 w-5 shrink-0 rounded-full bg-cc-hover ${GROUP_RING[ring]}`}
         data-testid="threads-mode-row-status"
-        data-status={row.group}
+        data-status={ring}
       >
         {badge && <span className="absolute -bottom-px -right-px flex">{badge}</span>}
       </span>
@@ -628,7 +639,7 @@ function ThreadStatusPortrait({ row }: { row: ThreadRow }) {
     <LeaderProfilePortraitImage
       portrait={portrait}
       size="sm"
-      statusRing={{ className: GROUP_RING[row.group], status: row.group }}
+      statusRing={{ className: GROUP_RING[ring], status: ring }}
       cornerBadge={badge || undefined}
       testId="threads-mode-row-status"
     />

@@ -862,7 +862,7 @@ export function Sidebar({
         {allSessionList.length > 0 && (
           <div ref={viewRowRef} className="px-2 pt-2 pb-1.5 flex shrink-0 items-center gap-1">
             <SidebarViewSwitch mode={sidebarViewMode} compact={viewSwitchCompact} onSwitch={switchSidebarView} />
-            {recentView && <RecentSpacesStatus spaces={treeViewGroups} />}
+            {recentView && <RecentSpacesStatus spaces={treeViewGroups} hideUnread={threadsView} />}
             {recentView && !threadsView && (
               <RecentNewSessionMenuButton spaces={treeViewGroups} onCreateSession={handleCreateSessionInTreeGroup} />
             )}

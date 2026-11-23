@@ -48,16 +48,30 @@ export function RecentSessionList({
  * Status totals across every Session Space, with the per-space breakdown on
  * hover (mouse) or tap (touch).
  */
-export function RecentSpacesStatus({ spaces }: { spaces: TreeViewGroupData[] }) {
+export function RecentSpacesStatus({
+  spaces,
+  hideUnread = false,
+}: {
+  spaces: TreeViewGroupData[];
+  /**
+   * Leave out the unread counts: in the Threads view they count sessions while the list counts
+   * threads, so a leader with five unread threads showed "1" (Jiayi, Nov 23: "just confusing").
+   */
+  hideUnread?: boolean;
+}) {
   const popover = useAnchoredPopover();
   const lastPointerType = useRef<string>("mouse");
   const listed = listedSpaces(spaces);
+  const statusOf = (space: TreeViewGroupData) => ({ ...spaceStatus(space), ...(hideUnread ? { unread: 0 } : {}) });
   const totals = listed.reduce(
-    (sum, space) => ({
-      running: sum.running + space.runningCount,
-      permission: sum.permission + space.permCount,
-      unread: sum.unread + space.unreadCount,
-    }),
+    (sum, space) => {
+      const status = statusOf(space);
+      return {
+        running: sum.running + status.running,
+        permission: sum.permission + status.permission,
+        unread: sum.unread + status.unread,
+      };
+    },
     { running: 0, permission: 0, unread: 0 },
   );
   const totalSessions = listed.reduce((sum, space) => sum + countSpaceSessions(space), 0);
@@ -97,7 +111,7 @@ export function RecentSpacesStatus({ spaces }: { spaces: TreeViewGroupData[] }) 
           {listed.map((space) => (
             <div key={space.id} className="px-2.5 py-1 flex items-center gap-2 text-[11px] text-cc-fg">
               <span className="min-w-0 flex-1 truncate">{space.name}</span>
-              <StatusCountDots counts={spaceStatus(space)} />
+              <StatusCountDots counts={statusOf(space)} />
               <span className="text-[10px] text-cc-muted/60 shrink-0">{countSpaceSessions(space)}</span>
             </div>
           ))}

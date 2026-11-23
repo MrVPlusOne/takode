@@ -315,6 +315,34 @@ describe("SidebarThreadsMode", () => {
     expect(screen.getByTestId("other-sessions")).toBeTruthy();
   });
 
+  // Jiayi (Nov 23): a thread row counts only what waits for the user (questions, unread results);
+  // work going on shows only as the ring, which turns green over blue while a thread with unread
+  // results is still working. Here q-4 runs with an unread result, and topic:aa is where the leader
+  // is writing with nothing unread.
+  it("shows work only in the ring, green over blue, and never as a count", () => {
+    queue.items = [{ kind: "unread", key: "u", sessionId: "takode", threadKey: "q-4", timestamp: 1 }];
+    render(
+      <SidebarThreadsMode
+        data={{ leaders: LEADERS, others: [] }}
+        currentSessionId={null}
+        onOpened={() => {}}
+        otherSessions={() => null}
+      />,
+    );
+    const rows = within(screen.getByTestId("threads-mode-threads")).getAllByTestId("threads-mode-row");
+    const row = (key: string) => rows.find((candidate) => candidate.dataset.threadKey === key)!;
+    // Still listed as an unread thread, but its ring says it is working.
+    expect(row("q-4").dataset.group).toBe("new-results");
+    const ring = within(row("q-4")).getByTestId("threads-mode-row-status");
+    expect(ring.dataset.status).toBe("in-progress");
+    expect(ring.className).toContain("ring-emerald-500/80");
+    expect(within(row("q-4")).getByTestId("status-count-unread").textContent).toBe("1");
+    expect(within(row("q-4")).queryByTestId("status-count-running")).toBeNull();
+    // Working with nothing unread: a green ring and no count at all.
+    expect(within(row("topic:aa")).getByTestId("threads-mode-row-status").dataset.status).toBe("in-progress");
+    expect(within(row("topic:aa")).queryByTestId("status-count-running")).toBeNull();
+  });
+
   // Jiayi (Nov 3): one title per thread, then its update, marked as one. A reopened quest is named
   // by its quest title like any other.
   it("marks a thread's news line as its update, under its one title", () => {
