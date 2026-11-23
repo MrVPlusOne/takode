@@ -16,12 +16,64 @@ The rest of the release is about spending less effort keeping up with your agent
 
 Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
 
+## 2026-11-23
+
+### Changed
+
+- **OpenAI-only voice transcription** -- Voice input now always uses OpenAI-compatible speech-to-text: the Gemini backend is gone, so a `GOOGLE_API_KEY` alone no longer turns voice input on. The cleanup pass after transcription defaults to gpt-5.4 for new settings; a model you already chose is kept.
+
+## 2026-11-21
+
+### Changed
+
+- **Thread replies in Slack updates** -- A watched direct message or group DM now includes the discussions held in its threads, which Slack's history leaves out. Replies follow the message that started their thread, each thread is named once, and times show the date and time zone only when they change.
+
+## 2026-11-20
+
+### Changed
+
+- **Typing effect for each theme** -- Settings > Appearance > Typing Effect now also chooses what each key throws in the light and in the dark theme: Sparks (the new default in both, vermilion by day and forge sparks at night), Gold glints or Gold leaf. A box beside each choice, drawn in that theme, lets you type to try it, and the choice is saved for every browser.
+
+## 2026-11-19
+
+### Added
+
+- **Download from the image viewer** -- The image viewer and the Lightbox have a Download button that saves the original file rather than the compressed copy shown, so a GIF stays animated and a plot keeps its resolution. Phones save through the share sheet, and images on another machine download from there.
+
+### Changed
+
+- **Dictation learns misheard phrases** -- Voice transcription learns the phrases speech recognition keeps mishearing from your recent dictations, such as "tool call" heard as "two-core", from the cases where the cleanup pass fixed them. It gives them to speech-to-text as keywords and tells the cleanup what they tend to be heard as, so they come out right far more often.
+
+### Fixed
+
+- **Comment chips on phones** -- On a phone, the comment chips above the message box float over the feed, and the feed gets matching room to scroll past them.
+
+## 2026-11-18
+
+### Added
+
+- **Open in Slack** -- Each conversation in a Slack update in the feed ends with an "Open in Slack" link to its first new message, opened in its thread for a reply.
+
+### Changed
+
+- **Comment chips above the message box** -- Comments attached to a draft now sit in one row just above the message box, whether it is collapsed or expanded. Each chip starts with its comment's text and opens the comment at its passage, and comments that don't fit are counted on a "+N" chip that lists them all.
+- **Side quest results come back to you** -- When a leader files a side quest to help answer something you asked, its result now arrives as an answer in the thread where you asked, which waits for it, so you no longer have to open the side quest. Writing in the side quest's own thread makes it an ordinary quest.
+
+## 2026-11-17
+
+### Fixed
+
+- **Ink & Paper comes back to life** -- After a lost WebGL context (on a Mac after sleep) or a painting layer that failed to load, the living painting starts again by itself instead of staying a still picture until a reload.
+- **Side chats stuck loading** -- A side chat opened together with a switch to its leader no longer stays on "Loading conversation..." forever.
+- **Wrapped quotes in the message box** -- A wrapped line of a quote stays inside its quote instead of running under the bar, and nested quotes get a bar for each level.
+
 ## 2026-11-16
 
 ### Added
 
 - **Typing Effect setting** -- Settings > Appearance > Typing Effect chooses when chat inputs get the typing feel: Off, With Background (only while a scenic background is on, the default) or Always. Without a scenic background the box edge takes the theme's accent and the gold leaf is finer and brighter. The caret's glow now follows the caret when you click, use the arrow keys or scroll, and goes out over a selection.
 - **Starring a figure from the image viewer** -- An image an agent showed in the chat, which the Library keeps as a figure, shows its star beside Copy path and Copy image in the image viewer, so it can be starred without opening the Library.
+- **Back and Forward in a side pane** -- While a side pane has focus, the browser's Back and Forward keys and the mouse's side buttons step through what that pane showed before, instead of moving the main view.
 
 ### Changed
 
@@ -1645,271 +1697,6 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 - **Historical Journey routes** -- Legitimate completed Explore-to-Implement history remains valid across later board operations while malformed phase data fails closed before provenance can be rewritten
 - **Large conversation restoration** -- Mobile and desktop sessions restore through compact authoritative projections and bounded visible windows instead of showing a false-empty Main view
 
-## 2026-07-31
-
-### Added
-
-- **Held-input recovery receipts** -- Automatic-pause recovery keeps durable, sanitized, exact-once outcome records across retry, restart, and ownership handoff, with bounded searchable history and no payload disclosure
-
-### Changed
-
-- **Edit-and-approve checkpoints** -- One fresh reply may make one exact substitution and approve the resulting packet only when every unchanged term and consequence remains unambiguous; all broader edits require a revised packet
-
-## 2026-07-30
-
-### Changed
-
-- **Inbound handoff markers** -- Destination quest feeds hide redundant inbound transition rows while source threads retain the outbound breadcrumb and All Threads keeps the complete audit
-- **Raw protocol recording** -- Automatic Claude, Codex, and browser payload capture is off by default while explicit environment opt-in, manual per-session capture, and existing-file inspection remain available
-- **Model migration notices** -- Legacy model-identity warnings can be acknowledged across browsers and restarts without erasing audit history, and stale acknowledgements cannot hide a newer event
-
-## 2026-07-29
-
-### Changed
-
-- **Replay comparison layout** -- Transcription Replay & compare starts collapsed while Raw Transcript stays visible and comparison details remain accessible on demand
-
-### Fixed
-
-- **Managed model identity** -- Codex routing fails closed when the selected model cannot be proven, preventing silent drift or fallback while retaining one-time legacy migration provenance
-
-## 2026-07-28
-
-### Added
-
-- **GPT Transcribe voice model** -- New voice-transcription settings default to `gpt-transcribe` with bounded vocabulary and expected-language hints while preserving older and custom model compatibility
-- **Transcription replay comparisons** -- Transcription Detail can re-run stored audio or raw transcripts against selected models, save comparison variants, and rediscover a privacy-bounded recording archive after restart
-- **Transcription record previews** -- Transcription Debug rows show bounded single-line enhanced-first or raw-fallback excerpts, while unsafe and non-ready records remain preview-free
-- **Replay difference highlighting** -- Re-transcribe and re-enhance comparisons highlight stage-correct text changes with readable bounded fallbacks for long inputs
-
-### Changed
-
-- **Composer and Questmaster density** -- The composer condenses model controls into one chip and removes branch/diff metadata, while the compact quest table drops its User review checks column
-- **Expected language picker** -- Selected language hints remain visible while the searchable picker stays collapsed until requested
-
-### Fixed
-
-- **Session unread consistency** -- Compact lists, live updates, and selection hydration share one server-authored notification projection so read or closed-thread alerts cannot inflate counts while legitimate unread stays visible
-- **Copilot authentication exhaustion** -- Codex sessions pause automatic inputs after a strictly recognized terminal API-key refresh failure while preserving manual recovery and exact-once backlog drain
-
-## 2026-07-27
-
-### Changed
-
-- **Delegate task results** -- Delegate traces group Bash commands with their results, lead with the child summary, and separate task, timing, and inspection metadata from result content
-
-### Fixed
-
-- **Delegate task context** -- Native-fork delegates resume the expected inherited Codex context, fail closed instead of silently starting fresh, and keep pending handoff state accurate
-- **Backend startup labels** -- Session creation shows launch progress for Codex, Claude Code, or Claude SDK according to the selected backend
-- **Leader route splits** -- Thread routing recognizes split markers even when blank spacer lines surround them
-
-## 2026-07-26
-
-### Changed
-
-- **Delegate task contract** -- The command-only delegation tool is now the general `delegate_task(task)` workflow while retaining hidden child evidence, lifecycle safeguards, and compact parent results
-
-### Fixed
-
-- **Codex startup recovery** -- Queued work waits for initializing or resuming adapters to become ready instead of relaunching them prematurely, and internal initialization turn-end rows stay out of leader activity
-
-## 2026-07-25
-
-### Added
-
-- **Quest commit diffs** -- Leader quest tabs can open quest-recorded code commits with selected-first loading, clear zero-code states, and protection from stale background failures
-
-### Changed
-
-- **Message dates** -- Message timestamps stay time-only today and add compact yesterday, current-year, or prior-year date context for older history
-- **Quest Journey details** -- Long phase histories are grouped and windowed so current runs stay readable while older notes remain accessible
-
-### Fixed
-
-- **Delegate child lifecycle** -- Completed hidden delegates leave active session lists without losing UUID-backed transcript inspection
-
-## 2026-07-24
-
-### Changed
-
-- **Post-Explore routing** -- Leaders can revise a completed Explore directly to a clear low-risk Implement step while required User Checkpoints and later safeguards remain protected
-- **Light theme contrast** -- Chat, quest links, attention rows, and related light-theme surfaces have clearer text and state contrast
-
-## 2026-07-23
-
-### Added
-
-- **Delegated work** -- Leaders can fork bounded work into a hidden Codex child, keep raw evidence in the child transcript, and receive a compact inspectable parent result
-
-### Changed
-
-- **Bash result visibility** -- Codex Bash cards prefer fuller matching output, mark embedded newlines in collapsed previews, and bound retained raw output
-- **Injected event details** -- Injected events show payload size metadata, and memory-catalog snapshots can be copied from their feed rows
-
-### Fixed
-
-- **Thread routing boundaries** -- Mid-message route splits, deep-link scroll targets, and stale ready-status chips resolve to the intended thread without repeated navigation
-- **Codex tool readiness** -- Startup and delegated-child prompts wait for refreshed MCP tools and an actual callable handoff tool before proceeding
-
-## 2026-07-22
-
-### Added
-
-- **Memory catalog startup context** -- Leader startup and recovery receive a visible catalog snapshot so relevant durable memory can be inspected before work continues
-
-### Changed
-
-- **Leader tab selection** -- Relevant quest tabs can surface in the background without automatically replacing the leader's selected thread
-
-### Fixed
-
-- **Thread-aware message links** -- Session and message links select the intended thread before jumping to their target
-- **Codex shell environment** -- Session-scoped Codex shell tools preserve the configured home directory and its isolated session state
-
-## 2026-07-21
-
-### Added
-
-- **Journey revisions** -- `takode board revise` can replace an active Journey suffix while preserving completed phase history and validating required safeguards
-
-### Changed
-
-- **Board proposals** -- `takode board propose --summary` creates and presents one expanded approval packet with Journey and dependency context
-
-### Fixed
-
-- **Thread continuation links** -- Continuation markers keep their session and quest links when rendered in collapsed feed history
-
-## 2026-07-20
-
-### Added
-
-- **Questmaster local backups** -- Quest and Journey text gains retained local snapshots and mutation journals, with separately deduplicated image blobs and manual restore guidance
-
-### Fixed
-
-- **Needs-input retries** -- Notification retries anchor to visible prompts, deduplicate only exact active retries, and report recovered notification state more accurately
-- **Quest hover previews** -- Quest links validate cached preview metadata before rendering so stale summaries do not appear under the wrong quest
-
-## 2026-07-17
-
-### Changed
-
-- **Leader ready outcomes** -- Leader workflows verify promised durable actions before marking a thread Ready
-
-### Fixed
-
-- **All Threads status noise** -- Internal thread-status chips stay out of the combined All Threads feed
-
-## 2026-07-15
-
-### Changed
-
-- **Quest reference autocomplete** -- Composer quest references use the full authoritative candidate set instead of only the currently loaded quest page
-
-### Fixed
-
-- **Message navigator jumps** -- User-message navigation loads off-window targets before scrolling to them
-- **Internal status rows** -- Codex retry turn-end events and Thread Ready bookkeeping stay out of the visible conversation feed
-
-## 2026-07-14
-
-### Added
-
-- **Leader skill preloading** -- Leader sessions preload required orchestration skills during startup and recovery so recycled or resumed leaders regain Journey guidance more reliably
-
-### Changed
-
-- **Needs-input suggestions** -- Needs-input prompts can carry more short suggested answers, with guidance updated to keep choices useful without an arbitrary cap
-- **Checkpoint approval guidance** -- Leader and checkpoint instructions distinguish actual user decisions from corrections more explicitly before continuing work
-- **Leader work summaries** -- Session summaries show waiting counts, and newly started Journeys receive clearer attention treatment
-
-### Fixed
-
-- **Leader preload recovery reminders** -- Recovery reminders avoid false compaction signals during resume replay and point leaders back to preload state more accurately
-- **Quest Quiz directives** -- Inline quiz directives render after their quest details arrive instead of remaining unresolved in fetched history
-
-## 2026-07-13
-
-### Changed
-
-- **Quest Journey routing** -- Leaders can use lighter direct dispatch for low-risk tasks, and Outcome Review is optional when the approved Journey does not need a separate acceptance pass
-- **Codex launch defaults** -- Codex catalog handling disables unsupported Responses Lite options for MAI LiteLLM catalogs and gives non-leader sessions a safer auto-compact default
-
-### Fixed
-
-- **Quest link previews** -- Quest links show hover previews more reliably
-- **Codex model switching** -- Model changes, relaunches, leader context preservation, failed compaction recovery, and recycle watermarks recover more reliably without duplicate migration loops
-- **Archived session recovery** -- Archived-session relaunch and partial archive-group failures reconcile UI and server state more consistently
-
-## 2026-07-11
-
-### Changed
-
-- **Codex model catalog** -- Model pickers include refreshed Codex options and runtime-setting updates, with future reasoning parameters preserved for compatible models
-
-## 2026-07-09
-
-### Changed
-
-- **Archived session browsing** -- Archived sessions load in pages and open in read-only views so large archives are lighter and safer to browse
-
-### Fixed
-
-- **Configure Session context capacity** -- Configure Session and session info surfaces show context capacity more accurately for Codex sessions
-
-## 2026-07-08
-
-### Added
-
-- **Notification row actions** -- Notification rows expose per-session actions from notification chip surfaces
-- **Questmaster preview loading** -- Quest lists, hover cards, and detail panels can load compact previews before hydrating full quest records
-
-### Fixed
-
-- **Leader tool routing** -- Unthreaded or mixed leader tool/result rows route to the most recent relevant thread more consistently
-- **Mixed tool result previews** -- Assistant messages can render mixed tool-result previews without losing surrounding context
-- **Quest detail caching** -- Partial quest detail loads preserve summaries and avoid stale detail-cache state
-
-## 2026-07-07
-
-### Added
-
-- **Session directory opening** -- Session info surfaces can open session directories in the local file browser
-
-### Fixed
-
-- **Archived worktree cleanup** -- Archived worktree cleanup retries and retry rows reconcile branch deletion failures more reliably
-
-## 2026-07-06
-
-### Fixed
-
-- **Archive reconciliation** -- Sidebar archive mutations and reviewer archive markers roll back or reconcile more safely when archive operations fail
-
-## 2026-07-02
-
-### Changed
-
-- **Quest Quiz guidance** -- Completion guidance makes quiz questions more useful and better grounded in agent-discovered outcomes
-
-### Fixed
-
-- **Thread route splitting** -- Post-quiz routes, split thread routes, and ready-thread unread views avoid cumulative append and stale read-state issues
-
-## 2026-07-01
-
-### Changed
-
-- **Pushover prompts** -- Pushover input prompts use a clearer title
-
-### Fixed
-
-- **Reviewer sidebar chips** -- Reviewer labels fit and render consistently in sidebar chips
-- **Diff syntax highlighting** -- Unified diff panels highlight syntax more reliably
-- **Leader thread tabs** -- Completed leader thread tabs, active Work Board tab ordering, and ready-thread unread markers persist more predictably
-
 ## Earlier history
 
-Changes from April 10 to June 30, 2026 are in the [April to June 2026 changelog](docs/changelog/2026-04-to-06.md).
+Changes from July 2026 are in the [July 2026 changelog](docs/changelog/2026-07.md), and changes from April 10 to June 30, 2026 are in the [April to June 2026 changelog](docs/changelog/2026-04-to-06.md).

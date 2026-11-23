@@ -53,10 +53,17 @@ describe("changelog routes", () => {
     // and never bring back inherited upstream Companion release entries.
     const markdown = await readFile(new URL("../../../CHANGELOG.md", import.meta.url), "utf8");
     const archive = await readFile(new URL("../../../docs/changelog/2026-04-to-06.md", import.meta.url), "utf8");
+    const julyArchive = await readFile(new URL("../../../docs/changelog/2026-07.md", import.meta.url), "utf8");
 
     expect(markdown).toContain("(docs/changelog/2026-04-to-06.md)");
+    expect(markdown).toContain("(docs/changelog/2026-07.md)");
     expect(archive).toContain("## 2026-04-10");
-    for (const text of [markdown, archive]) {
+    // No month is in two places, and none falls between the archives and the live file.
+    expect(julyArchive).toContain("## 2026-07-01");
+    expect(julyArchive).toContain("## 2026-07-31");
+    expect(markdown).not.toContain("## 2026-07-");
+    expect(markdown).toContain("## 2026-08-01");
+    for (const text of [markdown, archive, julyArchive]) {
       expect(text).not.toContain("## [0.46.0]");
       expect(text).not.toContain("the-companion-v0");
     }
