@@ -63,6 +63,30 @@ describe("MarkdownContent line breaks", () => {
     expect(paragraph?.textContent).toBe("First line\nSecond line");
   });
 
+  it("joins a Markdown file's wrapped lines into one paragraph, but not a draft written in it", () => {
+    // Reports, .md files and memory notes are often wrapped at a fixed width. As in any Markdown
+    // viewer, a single newline there is a space, so a wrapped sentence must not break mid-line.
+    // A ```draft block inside such a file is a chat message, whose newlines stay line breaks.
+    const text = [
+      "Measured with four 77B tries",
+      "per row and audited by hand.",
+      "",
+      "```draft",
+      "title: Status",
+      "---",
+      "First line",
+      "Second line",
+      "```",
+    ].join("\n");
+    const { container } = render(<MarkdownContent text={text} markdownFile />);
+
+    const [paragraph, ...draftParagraphs] = container.querySelectorAll("p");
+    expect(paragraph?.querySelector("br")).toBeNull();
+    expect(paragraph?.textContent).toBe("Measured with four 77B tries\nper row and audited by hand.");
+    const draftParagraph = draftParagraphs.find((p) => p.textContent?.startsWith("First line"));
+    expect(draftParagraph?.querySelector("br")).toBeTruthy();
+  });
+
   it("keeps markdown lists structured as lists while allowing soft breaks in list items", () => {
     // Guards against the newline fix flattening list syntax into plain paragraphs.
     const { container } = render(<MarkdownContent text={"Agenda:\n- first item\n- second item"} />);

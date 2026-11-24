@@ -244,6 +244,7 @@ function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTo
                 // Links in the file resolve beside it, on the same machine as the file itself.
                 sessionId={target.sessionId}
                 fileBasePath={content.absolutePath}
+                markdownFile
                 wrapLongContent
                 onSessionNavigate={closeFileViewers}
                 questLinkSurface="chat-feed"

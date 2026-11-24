@@ -256,6 +256,7 @@ export function ArtifactViewer({
                   sessionId={source.sessionId}
                   fileBasePath={options?.fileBasePath}
                   sectionJumpList={options?.sectionJumpList}
+                  markdownFile={options?.markdownFile}
                   enableChatSelectionMenu
                 />
               )}

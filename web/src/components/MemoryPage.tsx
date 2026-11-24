@@ -461,7 +461,7 @@ function MemoryFileDetail({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Current content</h3>
             <div className="mt-3 w-full max-w-none rounded-md border border-cc-border bg-cc-bg/50 p-4">
               {file.body ? (
-                <MarkdownContent text={file.body} size="sm" variant="conservative" wrapLongContent />
+                <MarkdownContent text={file.body} size="sm" variant="conservative" markdownFile wrapLongContent />
               ) : (
                 <div className="text-xs text-cc-muted">No body content.</div>
               )}

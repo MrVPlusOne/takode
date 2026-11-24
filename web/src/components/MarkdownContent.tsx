@@ -372,6 +372,12 @@ interface MarkdownContentProps {
   questLinkSurface?: QuestLinkSurface;
   /** A long report: list its `##` sections before the first one, to jump between them. */
   sectionJumpList?: boolean;
+  /**
+   * The text is a Markdown file's content (a report, a `.md` file, a memory note): a single newline
+   * joins lines into one paragraph, as in any Markdown viewer, so files wrapped at a fixed width read
+   * as paragraphs. Otherwise each newline shows as a line break, as people expect of typed messages.
+   */
+  markdownFile?: boolean;
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -682,6 +688,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   fileLinkMode = "interactive",
   questLinkSurface = "legacy",
   sectionJumpList = false,
+  markdownFile = false,
 }: MarkdownContentProps) {
   const sizeClass =
     size === "sm"
@@ -788,7 +795,7 @@ export const MarkdownContent = memo(function MarkdownContent({
           [remarkGfm, REMARK_GFM_OPTIONS],
           remarkAllowedHtml,
           remarkMath,
-          remarkBreaks,
+          ...(markdownFile ? [] : [remarkBreaks]),
           remarkNormalizeOrderedListContinuations,
           ...(isConservative ? [remarkHeadingsAsTyped] : []),
           remarkPlainTakodeReferences,
@@ -1055,12 +1062,13 @@ export const MarkdownContent = memo(function MarkdownContent({
                 return (
                   <CollapsedArtifact
                     marker={marker}
-                    renderMarkdown={(markdown) => (
+                    renderMarkdown={(markdown, options) => (
                       <MarkdownContent
                         text={markdown}
                         size={size}
                         sessionId={sessionId}
                         fileBasePath={fileBasePath}
+                        markdownFile={options?.markdownFile}
                         wrapLongContent={wrapLongContent}
                         onSessionNavigate={onSessionNavigate}
                         stopLinkPropagation={stopLinkPropagation}

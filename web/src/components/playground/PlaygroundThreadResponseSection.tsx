@@ -521,7 +521,7 @@ const PUBLISHED_REPORT: Extract<FeedEntry, { kind: "message" }> = {
     id: "playground-published-report",
     role: "assistant",
     content:
-      "# Daily briefing: Tuesday\n\n## Needs you today\n\n- **Card payment:** statement balance due Monday.\n- **Two pipeline decisions** from the data leader.\n\n## Your to-dos\n\nNo changes.\n\n## What you got done\n\n- Reviewed the weights pull request.\n- Closed two stale quests.\n\n## Still waiting on you\n\n- **Benchmark checkpoint** (since last week): close or reassign.\n- **Slack reminder:** feedback submissions due Friday.",
+      "# Daily briefing: Tuesday\n\n## Needs you today\n\n- **Card payment:** statement balance due Monday.\n- **Two pipeline decisions** from the data leader.\n\n## Your to-dos\n\nNo changes since yesterday. The two to-dos you added last week are still\nopen, and neither is due before Friday.\n\n## What you got done\n\n- Reviewed the weights pull request.\n- Closed two stale quests.\n\n## Still waiting on you\n\n- **Benchmark checkpoint** (since last week): close or reassign.\n- **Slack reminder:** feedback submissions due Friday.",
     timestamp: PLAYGROUND_TIME,
     historyIndex: 1,
     metadata: {

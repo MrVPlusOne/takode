@@ -29,10 +29,13 @@ import { readAloudDraftText } from "../read-aloud-text.js";
 
 /** Renders Markdown with the caller's settings; passed in so these components don't import MarkdownContent. */
 /** Renders a version's Markdown; a report passes its file's path so its relative file links resolve. */
-/** Renders Markdown for a saved version; `sectionJumpList` asks for a long report's list of sections. */
+/**
+ * Renders Markdown for a saved version; `sectionJumpList` asks for a long report's list of sections,
+ * and `markdownFile` marks a report's file text, whose wrapped lines join into paragraphs.
+ */
 export type RenderMarkdown = (
   text: string,
-  options?: { fileBasePath?: string; sectionJumpList?: boolean },
+  options?: { fileBasePath?: string; sectionJumpList?: boolean; markdownFile?: boolean },
 ) => ReactNode;
 
 /**
@@ -230,7 +233,15 @@ export function ArtifactVersionContentView({
           />
         );
       }
-      return <div>{renderMarkdown(content.markdown, { fileBasePath: content.sourcePath, sectionJumpList: true })}</div>;
+      return (
+        <div>
+          {renderMarkdown(content.markdown, {
+            fileBasePath: content.sourcePath,
+            sectionJumpList: true,
+            markdownFile: true,
+          })}
+        </div>
+      );
     case "table":
       return <div>{renderMarkdown(content.markdown)}</div>;
     case "visual":
@@ -261,7 +272,7 @@ function LibraryDeck({
   renderMarkdown: RenderMarkdown;
 }) {
   const render = useCallback(
-    (slide: string) => renderMarkdown(slide, { fileBasePath: sourcePath }),
+    (slide: string) => renderMarkdown(slide, { fileBasePath: sourcePath, markdownFile: true }),
     [renderMarkdown, sourcePath],
   );
   return (

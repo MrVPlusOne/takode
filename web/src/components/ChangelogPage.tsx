@@ -76,7 +76,7 @@ export function ChangelogPage() {
 
         {!loading && changelog && (
           <main className="min-w-0 rounded-lg border border-cc-border bg-cc-surface px-4 py-4 sm:px-5">
-            <MarkdownContent text={changelog.markdown} wrapLongContent className="max-w-none" />
+            <MarkdownContent text={changelog.markdown} markdownFile wrapLongContent className="max-w-none" />
           </main>
         )}
       </div>

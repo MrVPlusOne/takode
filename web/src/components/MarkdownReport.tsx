@@ -218,6 +218,7 @@ function MarkdownReportDeck({
         enableChatSelectionMenu={!readOnly}
         fileLinkMode={readOnly ? "text-only" : "interactive"}
         fileBasePath={source.sourcePath}
+        markdownFile
         questLinkSurface="chat-feed"
       />
     ),
@@ -278,6 +279,7 @@ function ReportContent({
         enableChatSelectionMenu={!readOnly}
         fileLinkMode={readOnly ? "text-only" : "interactive"}
         fileBasePath={source.sourcePath}
+        markdownFile
         questLinkSurface="chat-feed"
         sectionJumpList={sectionJumpList}
       />
