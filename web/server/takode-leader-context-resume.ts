@@ -358,8 +358,10 @@ function collectLeaderDirectedTurns(
         ? (participant.messageHistory[turn.endIdx] as Extract<BrowserIncomingMessage, { type: "result" }>)
         : null;
     const startTimestamp = extractTimestamp(startMessage);
+    // A result's own time when stored with one; older results only give Claude's duration.
     const endTimestamp = resultMessage
-      ? startTimestamp + (((resultMessage.data as CLIResultMessage).duration_ms as number | undefined) ?? 0)
+      ? resultMessage.timestamp ||
+        startTimestamp + (((resultMessage.data as CLIResultMessage).duration_ms as number | undefined) ?? 0)
       : startTimestamp;
     const derivedResult =
       turn.endIdx >= 0

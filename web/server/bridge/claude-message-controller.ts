@@ -1009,6 +1009,7 @@ export function handleResultMessage(
   const provisionalResultBrowserMsg: BrowserIncomingMessage = {
     type: "result",
     data: msg,
+    timestamp: Date.now(),
     ...(turnWasInterrupted ? { interrupted: true } : {}),
     ...(resultTurnRoute?.threadKey ? { threadKey: resultTurnRoute.threadKey } : {}),
     ...(resultTurnRoute?.questId ? { questId: resultTurnRoute.questId } : {}),

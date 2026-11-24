@@ -1110,7 +1110,13 @@ export type BrowserIncomingMessageBase =
   | import("../shared/markdown-report.js").MarkdownReportMessage
   | CodexReasoningDetailMessage
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
-  | { type: "result"; data: CLIResultMessage; interrupted?: boolean }
+  | {
+      type: "result";
+      data: CLIResultMessage;
+      interrupted?: boolean;
+      /** When Takode received it; results stored before November 2026 have none. */
+      timestamp?: number;
+    }
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_cancelled"; request_id: string }
   | {

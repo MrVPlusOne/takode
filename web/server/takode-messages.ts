@@ -797,6 +797,22 @@ function getCompactMarkerText(msg: Extract<BrowserIncomingMessage, { type: "comp
   return msg.markerKind === "session_recycled" ? "[Session recycled]" : "[Context compacted]";
 }
 
+/**
+ * When a turn ended: its result's own time, or for results stored without one,
+ * the turn's start plus Claude's duration. That estimate is off when the turn's
+ * first stored message is not where Claude's run began (an interrupt message
+ * starts a new turn, but the result's duration covers the interrupted run).
+ */
+function turnEndedAt(
+  startedAt: number,
+  endMsg: BrowserIncomingMessage | null,
+  durationMs: number | null,
+): number | null {
+  const stamped = endMsg?.type === "result" ? endMsg.timestamp : undefined;
+  if (stamped) return stamped;
+  return durationMs && startedAt ? startedAt + durationMs : null;
+}
+
 /** Get the timestamp for any message in the history. */
 function extractTimestamp(msg: BrowserIncomingMessage): number {
   switch (msg.type) {
@@ -807,8 +823,7 @@ function extractTimestamp(msg: BrowserIncomingMessage): number {
     case "assistant":
       return (msg as { timestamp?: number }).timestamp || 0;
     case "result":
-      // Result messages don't have a direct timestamp; try duration_ms offset from turn start
-      return 0;
+      return msg.timestamp || 0;
     case "compact_marker":
       return msg.timestamp || 0;
     case "permission_approved":
@@ -997,7 +1012,7 @@ function buildTurnMessages(
     }
 
     let ts = extractTimestamp(msg);
-    // Result messages have no timestamp — use endedAt or last known timestamp
+    // Results stored without a timestamp use the turn's end or the last known timestamp
     if (ts === 0) ts = endedAt || lastKnownTs;
     if (ts > 0) lastKnownTs = ts;
 
@@ -1114,8 +1129,7 @@ export function buildPeekResponse(
 
     const startedAt = extractTimestamp(startMsg);
     const durationMs = endMsg?.type === "result" ? ((endMsg.data as CLIResultMessage).duration_ms ?? null) : null;
-    // Estimate endedAt: use duration offset from start, or find last assistant timestamp
-    const endedAt = endMsg ? (durationMs && startedAt ? startedAt + durationMs : null) : null;
+    const endedAt = endMsg ? turnEndedAt(startedAt, endMsg, durationMs) : null;
 
     const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, {
       full,
@@ -1195,7 +1209,7 @@ export function buildPeekDefault(
     const endMsg = turn.endIdx >= 0 ? messageHistory[turn.endIdx] : null;
     const startedAt = extractTimestamp(startMsg);
     const durationMs = endMsg?.type === "result" ? ((endMsg.data as CLIResultMessage).duration_ms ?? null) : null;
-    const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
+    const endedAt = turnEndedAt(startedAt, endMsg, durationMs);
     const stats = computeTurnStats(messageHistory, turn.startIdx, turnNavigationEnd(messageHistory, turn));
 
     // Success from result
@@ -1243,7 +1257,7 @@ export function buildPeekDefault(
   const endMsg = lastTurn.endIdx >= 0 ? messageHistory[lastTurn.endIdx] : null;
   const startedAt = extractTimestamp(startMsg);
   const durationMs = endMsg?.type === "result" ? ((endMsg.data as CLIResultMessage).duration_ms ?? null) : null;
-  const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
+  const endedAt = turnEndedAt(startedAt, endMsg, durationMs);
 
   const expandedMessages = buildTurnMessages(messageHistory, lastTurn, contentLimit, {
     endedAt,
@@ -1705,7 +1719,7 @@ export function buildPeekTurnScan(
     const endMsg = turn.endIdx >= 0 ? messageHistory[turn.endIdx] : null;
     const startedAt = extractTimestamp(startMsg);
     const durationMs = endMsg?.type === "result" ? ((endMsg.data as CLIResultMessage).duration_ms ?? null) : null;
-    const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
+    const endedAt = turnEndedAt(startedAt, endMsg, durationMs);
     const stats = computeTurnStats(messageHistory, turn.startIdx, turnNavigationEnd(messageHistory, turn));
     const success = endMsg?.type === "result" ? !(endMsg.data as CLIResultMessage).is_error : null;
 

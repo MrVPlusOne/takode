@@ -323,6 +323,25 @@ describe("buildPeekResponse", () => {
     expect(turn.messages[2].dur).toBe(5000);
   });
 
+  it("ends a turn at its result's own time, not its first message's time plus Claude's duration", () => {
+    // An interrupt message starts a new turn, but Claude's result for the interrupted
+    // run reports that whole run's duration: start + duration put a 2:52 PM interrupt
+    // at 3:12 PM. A result stored with its time ends the turn there.
+    const interruptAt = 1_000_000;
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Session interrupted by leader", interruptAt),
+      { ...resultMsg(1_211_710, true), timestamp: interruptAt + 150 } as BrowserIncomingMessage,
+    ];
+
+    const [turn] = buildPeekResponse(history, { turns: 1 });
+
+    expect(turn.end).toBe(interruptAt + 150);
+    expect(turn.messages[1].ts).toBe(interruptAt + 150);
+    // Results stored before results had a time keep the duration estimate.
+    const [legacy] = buildPeekResponse([userMsg("go", interruptAt), resultMsg(5000)], { turns: 1 });
+    expect(legacy.end).toBe(interruptAt + 5000);
+  });
+
   it("extracts multiple turns when requested", () => {
     const history: BrowserIncomingMessage[] = [
       userMsg("First question", 1000),

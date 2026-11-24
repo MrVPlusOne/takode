@@ -318,6 +318,14 @@ describe("Claude SDK turns during a network outage", () => {
     vi.advanceTimersByTime(60_000);
     expect(backend.promptTexts()).toEqual([]);
 
+    // A retried response that has only started streaming can still be cut again
+    // (Fable's 10-minute thinking hit a 631 s connection limit on the laptop), so
+    // the retry stays shown until the model produces output.
+    backend.message(
+      JSON.stringify({ type: "stream_event", event: { type: "message_start" }, session_id: "cli-s1", uuid: "se-1" }),
+    );
+    expect(session.state.claude_api_retry).toEqual(retry);
+
     // The model answering again clears it.
     backend.message(ASSISTANT);
     expect(session.state.claude_api_retry).toBeNull();

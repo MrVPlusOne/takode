@@ -133,7 +133,7 @@ export function ElapsedTimer({
       : networkWait
         ? "Waiting for connection..."
         : apiRetry
-          ? `Retrying model request (${apiRetry.attempt} of ${apiRetry.maxRetries})...`
+          ? `Retrying model request (${apiRetry.attempt} of ${apiRetry.maxRetries})`
           : streamRetry
             ? "Retrying response..."
             : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
@@ -151,9 +151,9 @@ export function ElapsedTimer({
         "Send a message to try again; Takode also retries when this machine reconnects to a network."
       : "The model API can't be reached. Takode will continue this turn automatically once the connection is back."
     : apiRetry
-      ? `The model request failed${apiRetry.status == null ? " with no response" : ` with HTTP ${apiRetry.status}`}, ` +
-        `and Claude Code is retrying it (attempt ${apiRetry.attempt} of ${apiRetry.maxRetries}). ` +
-        "Nothing new is being written meanwhile. If every attempt fails, the turn ends with the error."
+      ? `A model request failed${apiRetry.status == null ? " (connection dropped or no response)" : ` with HTTP ${apiRetry.status}`}, ` +
+        `and Claude Code is retrying it from the start (attempt ${apiRetry.attempt} of ${apiRetry.maxRetries}). ` +
+        "This stays until the model produces output again. If every attempt fails, the turn ends with the error."
       : streamRetry
         ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
         : undefined;

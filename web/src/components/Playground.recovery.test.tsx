@@ -48,7 +48,7 @@ describe("Playground", { timeout: 60_000 }, () => {
     expect(screen.getByTestId("playground-claude-network-wait")).toHaveTextContent("Waiting for connection...");
     expect(screen.getByTestId("playground-claude-network-wait-paused")).toHaveTextContent("Waiting for connection...");
     // A model request failing with an HTTP status (Copilot's 408) must not read as a long-thinking turn.
-    expect(screen.getByTestId("playground-claude-api-retry")).toHaveTextContent("Retrying model request (7 of 15)...");
+    expect(screen.getByTestId("playground-claude-api-retry")).toHaveTextContent("Retrying model request (7 of 15)");
     expect(screen.getAllByText(/Cause: Copilot sign-in failed at/)).toHaveLength(1);
     expect(screen.getAllByText(/Cause: The model connection dropped repeatedly at/)).toHaveLength(4);
     expect(screen.getByText(/Cause: The selected model is not available at/)).toBeTruthy();

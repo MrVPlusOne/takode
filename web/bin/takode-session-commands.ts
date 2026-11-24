@@ -545,7 +545,7 @@ function printSessionInfo(data: TakodeSessionInfo, hosts: Map<string, HostSummar
   if (data.claudeCodeVersion) console.log(`  CLI Version    ${formatInlineText(data.claudeCodeVersion)}`);
   if (data.claudeApiRetry) {
     const { attempt, maxRetries, status } = data.claudeApiRetry;
-    const failure = status == null ? "got no response" : `failed with HTTP ${status}`;
+    const failure = status == null ? "failed (connection dropped or no response)" : `failed with HTTP ${status}`;
     console.log(`  Model Request  ${failure}; Claude Code retrying (attempt ${attempt} of ${maxRetries})`);
   }
   if (data.permissionMode) console.log(`  Permissions    ${formatInlineText(data.permissionMode)}`);

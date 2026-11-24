@@ -873,6 +873,8 @@ describe("result-message-controller", () => {
       session,
       {
         type: "result",
+        // Takode stamps each result with when it arrived.
+        timestamp: expect.any(Number),
         data: expect.objectContaining({
           result: "Transient provider request failed; Takode is retrying.",
           errors: undefined,

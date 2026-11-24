@@ -12,7 +12,7 @@ import { sessionTag } from "../session-tag.js";
  * server log only.
  *
  * Every retry Claude Code reports, with or without an HTTP status, is also
- * shown as `claude_api_retry` until the model answers. Otherwise a turn whose
+ * shown as `claude_api_retry` until the model produces output. Otherwise a turn whose
  * requests keep failing (Copilot's 408 for a request body it could not read
  * within 60 s, say) looks like a model thinking for many minutes.
  */
@@ -139,8 +139,12 @@ export function handleClaudeNetworkWaitMessage(
     return true;
   }
 
+  // A retried request whose response has started streaming can still fail again:
+  // Fable 5.2 thinks for up to ~10 minutes per request, and on the laptop every
+  // request past 631 s was cut (ECONNRESET) and retried from scratch. So the retry
+  // stays shown until the model actually produces something, not only starts a stream.
+  if (isModelOutput(msg)) publishRetry(session, deps, null);
   if (isModelActivity(msg)) {
-    publishRetry(session, deps, null);
     if (session.state.claude_network_wait) {
       console.log(`[claude-network] Model API reachable again for session ${sessionTag(session.id)}`);
       stopClaudeNetworkWait(session, deps);
@@ -175,6 +179,10 @@ function isSyntheticNetworkError(msg: any): boolean {
   const message = msg.message;
   if (message?.model !== "<synthetic>" || !Array.isArray(message.content)) return false;
   return message.content.some((block: any) => block?.type === "text" && isClaudeNetworkFailureText(block.text));
+}
+
+function isModelOutput(msg: any): boolean {
+  return msg.type === "assistant" || msg.type === "tool_progress" || msg.type === "result";
 }
 
 function isModelActivity(msg: any): boolean {
