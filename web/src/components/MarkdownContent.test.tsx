@@ -87,6 +87,23 @@ describe("MarkdownContent line breaks", () => {
     expect(draftParagraph?.querySelector("br")).toBeTruthy();
   });
 
+  it("ends a message's quote or list item at a line typed without its mark, but not in a Markdown file", () => {
+    // The message box draws each line with its own marks, so a line typed after "> abc" without ">"
+    // shows outside the quote. The sent message must agree instead of folding it into the quote
+    // (Markdown's lazy continuation). Markdown files keep standard Markdown.
+    const text = "> quoted\nafter the quote\n\n- item\nafter the list";
+    const { container } = render(<MarkdownContent text={text} variant="conservative" />);
+
+    expect(container.querySelector("blockquote")?.textContent?.trim()).toBe("quoted");
+    expect(container.querySelector("li")?.textContent?.trim()).toBe("item");
+    const outside = [...container.querySelectorAll(".markdown-body > p")].map((p) => p.textContent);
+    expect(outside).toEqual(["after the quote", "after the list"]);
+
+    const { container: file } = render(<MarkdownContent text={text} markdownFile />);
+    expect(file.querySelector("blockquote")?.textContent).toContain("after the quote");
+    expect(file.querySelector("li")?.textContent).toContain("after the list");
+  });
+
   it("keeps markdown lists structured as lists while allowing soft breaks in list items", () => {
     // Guards against the newline fix flattening list syntax into plain paragraphs.
     const { container } = render(<MarkdownContent text={"Agenda:\n- first item\n- second item"} />);

@@ -75,6 +75,7 @@ import {
 } from "../api/file-link-actions.js";
 import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
 import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
+import { separateLazyLines } from "../utils/markdown-lazy-lines.js";
 import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
 import { remarkAllowedHtml, separateDetailsTags } from "../utils/markdown-allowed-html.js";
 import {
@@ -375,7 +376,9 @@ interface MarkdownContentProps {
   /**
    * The text is a Markdown file's content (a report, a `.md` file, a memory note): a single newline
    * joins lines into one paragraph, as in any Markdown viewer, so files wrapped at a fixed width read
-   * as paragraphs. Otherwise each newline shows as a line break, as people expect of typed messages.
+   * as paragraphs. Otherwise each newline shows as a line break, as people expect of typed messages,
+   * and a line typed without its quote's `>` or its list item's indentation starts outside that quote
+   * or item, as the message box draws it.
    */
   markdownFile?: boolean;
 }
@@ -703,8 +706,12 @@ export const MarkdownContent = memo(function MarkdownContent({
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
   const preparedMath = useMemo(
     () =>
-      prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(separateDetailsTags(groupDraftPostsInMarkdown(text)))),
-    [text],
+      prepareMarkdownMathSource(
+        wrapSpacedFileLinkDestinations(
+          separateDetailsTags(groupDraftPostsInMarkdown(markdownFile ? text : separateLazyLines(text))),
+        ),
+      ),
+    [text, markdownFile],
   );
   const imagePathLinks = useContext(ImagePathLinkContext);
   const inlineLocalImages = useContext(InlineLocalImagesContext);

@@ -1,9 +1,11 @@
 /**
  * Message Box: the Markdown box every chat input uses by default, beside the plain textarea the
  * Message Box setting can switch to, with a draft that shows each style and quest and session
- * links (Cmd/Ctrl+click opens one; hovering shows its card).
+ * links (Cmd/Ctrl+click opens one; hovering shows its card), and the Markdown draft as it renders
+ * once sent, which must agree with the box (a line typed after a quote without ">" is outside it).
  */
 import { useState } from "react";
+import { MarkdownContent } from "../MarkdownContent.js";
 import { MarkdownReferenceLinks } from "../MarkdownReferenceLinks.js";
 import { RichTextBox } from "../RichTextBox.js";
 import type { RichTextBoxElement } from "../rich-text-box.js";
@@ -15,6 +17,7 @@ const DRAFT = [
   "- try it at *430 px* wide",
   "- compare with [the old build](https://example.com/build)",
   "> The hover card still flickers on Safari",
+  "Only after a reload, though.",
   "```",
   'const fold = useRememberedFold("sidebar");',
   "```",
@@ -45,6 +48,9 @@ export function PlaygroundMessageBoxSection() {
               className={BOX_CLASS}
             />
             <MarkdownReferenceLinks box={box} />
+          </Card>
+          <Card label="As sent">
+            <MarkdownContent text={markdown} variant="conservative" />
           </Card>
           <Card label="Plain">
             <textarea
