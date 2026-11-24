@@ -8,7 +8,6 @@ vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
     getToolResult: vi.fn(),
-    getFsImageUrl: vi.fn((path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`),
     openVsCodeRemoteFile: vi.fn(),
   },
 }));
@@ -829,7 +828,7 @@ describe("ToolBlock", () => {
     expect(screen.getByText("Copy as Plain Text")).toBeTruthy();
   });
 
-  it("hides binary result dumps for Read image tool results", () => {
+  it("hides binary result dumps for Read image tool results", async () => {
     const toolResults = new Map();
     const sessionResults = new Map();
     sessionResults.set("tool-image-2", {
@@ -859,6 +858,51 @@ describe("ToolBlock", () => {
     expect(screen.queryByText("PNG binary bytes...")).toBeNull();
     // Image preview appears only once (in Result section), avoiding duplicate thumbnails.
     expect(screen.getAllByRole("img").length).toBe(1);
+    // The file is read through the session, so a file on the session's remote host shows too,
+    // and the feed loads the small thumbnail rather than the original file.
+    const img = screen.getByRole("img", { name: "/home/user/screenshot.jpg" });
+    expect(img.getAttribute("src")).toBe(
+      "/api/fs/file-link/image?path=%2Fhome%2Fuser%2Fscreenshot.jpg&isRelative=0&variant=thumbnail&sessionId=s-image",
+    );
+    // The viewer opens on the full image of the same file.
+    // Its download fails in the test, so it falls back to showing the URL itself.
+    fireEvent.click(img);
+    await waitFor(() =>
+      expect(screen.getByTestId("lightbox-backdrop").querySelector("img")?.getAttribute("src")).toBe(
+        "/api/fs/file-link/image?path=%2Fhome%2Fuser%2Fscreenshot.jpg&isRelative=0&variant=full&sessionId=s-image",
+      ),
+    );
+    useStore.setState({ toolResults: new Map() });
+  });
+
+  it("says so instead of a broken image when the read image file cannot be loaded", () => {
+    // The file may have been moved or deleted since the agent read it, or its host is offline.
+    const toolResults = new Map([
+      [
+        "s-image-gone",
+        new Map([
+          [
+            "tool-image-gone",
+            { tool_use_id: "tool-image-gone", content: "", is_error: false, total_size: 0, is_truncated: false },
+          ],
+        ]),
+      ],
+    ]);
+    useStore.setState({ toolResults });
+
+    const { container } = render(
+      <ToolBlock
+        name="Read"
+        input={{ file_path: "/tmp/gone.png" }}
+        toolUseId="tool-image-gone"
+        sessionId="s-image-gone"
+      />,
+    );
+    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
+    fireEvent.error(screen.getByRole("img", { name: "/tmp/gone.png" }));
+
+    expect(screen.queryByRole("img", { name: "/tmp/gone.png" })).toBeNull();
+    expect(screen.getByText("The image file could not be loaded: /tmp/gone.png")).toBeTruthy();
     useStore.setState({ toolResults: new Map() });
   });
 
@@ -887,7 +931,10 @@ describe("ToolBlock", () => {
 
     fireEvent.click(screen.getByRole("button"));
     const img = screen.getByRole("img", { name: "web/public/logo.png" });
-    expect(img).toBeTruthy();
+    // A relative path resolves inside the session's folder, not the server's.
+    expect(img.getAttribute("src")).toBe(
+      "/api/fs/file-link/image?path=web%2Fpublic%2Flogo.png&isRelative=1&variant=thumbnail&sessionId=s-image-bash",
+    );
     expect(screen.getByText("Binary image output hidden.")).toBeTruthy();
     useStore.setState({ toolResults: new Map() });
   });

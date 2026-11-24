@@ -195,14 +195,16 @@ function assistantVisibleText(message: ChatMessage): string {
 
 function previewItemForAbsolutePath(path: string, sessionId: string | undefined): ImagePreviewItem {
   const filename = filenameForPath(path);
+  // Read through the session, so a path on the session's remote host previews too.
+  const target = { path, isRelative: false, ...(sessionId ? { sessionId } : {}) };
   return {
     id: imagePreviewIdForLocalPath(path, false),
     filename,
-    thumbnailUrl: api.getFsImageUrl(path, "thumbnail"),
-    fullUrl: api.getFsImageUrl(path, "full"),
+    thumbnailUrl: buildFileLinkImageVariantUrl(target, "thumbnail"),
+    fullUrl: buildFileLinkImageVariantUrl(target, "full"),
     title: path,
     sourcePath: path,
-    download: fileLinkDownload({ path, isRelative: false, ...(sessionId ? { sessionId } : {}) }),
+    download: fileLinkDownload(target),
   };
 }
 

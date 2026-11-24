@@ -23,7 +23,7 @@ import { CopyFormatButton } from "./CopyFormatButton.js";
 import { BoardBlock, type BoardProposalReviewPayload, type BoardRowData } from "./BoardBlock.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
-import { fileLinkDownload } from "../api/file-link-actions.js";
+import { buildFileLinkImageVariantUrl, fileLinkDownload } from "../api/file-link-actions.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
 import {
   getChangePatch,
@@ -841,6 +841,7 @@ function ToolResultSection({
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
   const isolateResultState = suppressStoredResult || resultOverride != null;
   const effectiveProgressToolName = isolateResultState ? undefined : progressToolName;
   const effectiveLiveOutput = isolateResultState ? "" : liveOutput;
@@ -896,7 +897,9 @@ function ToolResultSection({
   }
 
   if (isReadImage && !preview.is_error) {
-    const imgUrl = api.getFsImageUrl(imagePath);
+    // Read through the session, so a file on the session's remote host shows too. The feed shows
+    // the small thumbnail; the viewer loads the full image only when opened.
+    const image = { path: imagePath, isRelative: !imagePath.startsWith("/"), sessionId };
     return (
       <div className="mt-2 pt-2 border-t border-cc-border/50">
         <div className="flex items-center gap-2 mb-1.5">
@@ -904,19 +907,25 @@ function ToolResultSection({
           <span className="text-[10px] text-cc-muted">image preview</span>
         </div>
         <div className="rounded-lg border border-cc-border bg-cc-code-bg/40 p-2">
-          <img
-            src={imgUrl}
-            alt={imagePath}
-            className="max-h-48 w-auto rounded border border-cc-border/70 bg-black/10 cursor-zoom-in hover:opacity-80 transition-opacity"
-            onClick={() => setLightboxSrc(imgUrl)}
-          />
+          {imageFailed ? (
+            <div className="text-[11px] text-cc-muted">The image file could not be loaded: {imagePath}</div>
+          ) : (
+            <img
+              src={buildFileLinkImageVariantUrl(image, "thumbnail")}
+              alt={imagePath}
+              loading="lazy"
+              onError={() => setImageFailed(true)}
+              className="max-h-48 w-auto rounded border border-cc-border/70 bg-black/10 cursor-zoom-in hover:opacity-80 transition-opacity"
+              onClick={() => setLightboxSrc(buildFileLinkImageVariantUrl(image, "full"))}
+            />
+          )}
           <div className="mt-1 text-[10px] text-cc-muted">Binary image output hidden.</div>
         </div>
         {lightboxSrc && (
           <Lightbox
             src={lightboxSrc}
             alt={imagePath}
-            download={fileLinkDownload({ path: imagePath, isRelative: false, sessionId })}
+            download={fileLinkDownload(image)}
             onClose={() => setLightboxSrc(null)}
           />
         )}

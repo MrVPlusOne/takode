@@ -291,8 +291,8 @@ describe("image preview item provenance", () => {
       "session-1",
     );
     expect(linked.map((item) => item.thumbnailUrl)).toEqual([
-      "/api/fs/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-0.takode-agent.jpeg&variant=thumbnail",
-      "/api/fs/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-1.takode-agent.jpeg&variant=thumbnail",
+      "/api/fs/file-link/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-0.takode-agent.jpeg&isRelative=0&variant=thumbnail&sessionId=session-1",
+      "/api/fs/file-link/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-1.takode-agent.jpeg&isRelative=0&variant=thumbnail&sessionId=session-1",
     ]);
   });
 });

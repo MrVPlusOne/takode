@@ -19,7 +19,6 @@ vi.mock("../ws.js", () => ({ sendToSession }));
 vi.mock("../api.js", () => ({
   api: {
     getQuestValidated: vi.fn().mockResolvedValue({ status: "not-modified", etag: '"quest"' }),
-    getFsImageUrl: (path: string, variant?: string) => `/api/fs/image?path=${path}&variant=${variant}`,
   },
 }));
 vi.mock("../utils/notification-sound.js", () => ({

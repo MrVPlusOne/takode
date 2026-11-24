@@ -8,11 +8,6 @@ import { MessageBubble } from "./MessageBubble.js";
 
 vi.mock("../api.js", () => ({
   api: {
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return `/api/fs/image?${params.toString()}`;
-    },
     getToolResult: vi.fn(),
     markNotificationDone: vi.fn(async () => ({})),
     revertToMessage: vi.fn(async () => ({})),

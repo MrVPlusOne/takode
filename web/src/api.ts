@@ -1527,11 +1527,6 @@ export const api = {
     get<{ path: string; content: string }>(
       `/fs/read?path=${encodeURIComponent(path)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ""}`,
     ),
-  getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-    const params = new URLSearchParams({ path });
-    if (variant) params.set("variant", variant);
-    return `${BASE}/fs/image?${params.toString()}`;
-  },
   writeFile: (path: string, content: string) => put<{ ok: boolean; path: string }>("/fs/write", { path, content }),
   getFileDiff: (path: string, base?: string, opts?: { includeContents?: boolean; sessionId?: string }) => {
     let url = `/fs/diff?path=${encodeURIComponent(path)}`;

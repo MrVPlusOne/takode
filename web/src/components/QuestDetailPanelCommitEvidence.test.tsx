@@ -22,11 +22,6 @@ const mockMarkAllNotificationsDone = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => "/api/quests/_images/" + id,
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return "/api/fs/image?" + params.toString();
-    },
     getSettings: (...args: unknown[]) => mockGetSettings(...args),
     openVsCodeRemoteFile: vi.fn(),
     checkQuestVerification: (...args: unknown[]) => mockCheckQuestVerification(...args),

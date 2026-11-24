@@ -17,7 +17,6 @@ const apiMocks = vi.hoisted(() => ({
   revertToMessage: vi.fn(async () => ({})),
   starMessage: vi.fn(async () => ({})),
   unstarMessage: vi.fn(async () => ({})),
-  getFsImageUrl: vi.fn((path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`),
 }));
 
 vi.mock("./api.js", () => ({ api: apiMocks }));

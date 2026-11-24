@@ -10,11 +10,6 @@ vi.mock("../api.js", () => ({
   api: {
     revertToMessage: revertToMessageMock,
     markNotificationDone: markNotificationDoneMock,
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return `/api/fs/image?${params.toString()}`;
-    },
   },
 }));
 

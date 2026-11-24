@@ -16,11 +16,6 @@ vi.mock("../api.js", () => ({
     unstarMessage: unstarMessageMock,
     markNotificationDone: markNotificationDoneMock,
     getQuestValidated: getQuestValidatedMock,
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return "/api/fs/image?" + params.toString();
-    },
   },
 }));
 

@@ -9,7 +9,6 @@ vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
     getToolResult: vi.fn(),
-    getFsImageUrl: vi.fn((path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`),
     openVsCodeRemoteFile: vi.fn(),
   },
 }));

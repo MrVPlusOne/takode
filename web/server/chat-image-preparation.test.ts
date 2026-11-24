@@ -22,8 +22,8 @@ import { findLocalImageReferences } from "../shared/local-image-references.js";
 
 /**
  * Preparing the images an agent showed: each mention is turned into the same local file the
- * feed's preview request would read (a relative link through the session's folder, a plain path
- * as is), missing files are skipped, and figures get their gallery thumbnail.
+ * feed's preview request would read (resolved through the session, so a relative link lands in
+ * its folder), missing files are skipped, and figures get their gallery thumbnail.
  */
 
 let workDir: string;

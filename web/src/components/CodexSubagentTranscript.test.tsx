@@ -386,7 +386,6 @@ describe("CodexSubagentTranscript", () => {
 
   it("keeps relative image and multi-file tools visual-only in the inspector", () => {
     localStorage.setItem("cc-edit-blocks-expanded", "false");
-    const imageUrlSpy = vi.spyOn(api, "getFsImageUrl");
     const messages: ChatMessage[] = [
       childMessage({
         id: "private-file-link",
@@ -472,7 +471,6 @@ describe("CodexSubagentTranscript", () => {
     expect(edit.querySelector("svg")?.getAttribute("class")).toContain("rotate-90");
     expect(screen.queryByRole("button", { name: "Open File" })).toBeNull();
     expect(screen.queryByText("image preview")).toBeNull();
-    expect(container.querySelector('img[src*="/api/fs/image"]')).toBeNull();
-    expect(imageUrlSpy).not.toHaveBeenCalled();
+    expect(container.querySelector('img[src*="/api/fs/"]')).toBeNull();
   });
 });

@@ -8,7 +8,6 @@ vi.mock("../api.js", () => ({
     starMessage: vi.fn(async () => ({})),
     unstarMessage: vi.fn(async () => ({})),
     markNotificationDone: vi.fn(async () => ({})),
-    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
   },
 }));
 

@@ -6,11 +6,6 @@ import { extractMentionedLocalImagePaths, QuestPhaseNoteImages } from "./QuestPh
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return `/api/fs/image?${params.toString()}`;
-    },
   },
 }));
 
@@ -26,8 +21,8 @@ describe("QuestPhaseNoteImages", () => {
       {
         id: "path:/tmp/run/desktop.png",
         filename: "desktop.png",
-        thumbnailUrl: "/api/fs/image?path=%2Ftmp%2Frun%2Fdesktop.png&variant=thumbnail",
-        fullUrl: "/api/fs/image?path=%2Ftmp%2Frun%2Fdesktop.png&variant=full",
+        thumbnailUrl: "/api/fs/file-link/image?path=%2Ftmp%2Frun%2Fdesktop.png&isRelative=0&variant=thumbnail",
+        fullUrl: "/api/fs/file-link/image?path=%2Ftmp%2Frun%2Fdesktop.png&isRelative=0&variant=full",
         title: "/tmp/run/desktop.png",
         sourcePath: "/tmp/run/desktop.png",
         // The viewer's Download saves the original file, not the preview variant.
@@ -39,8 +34,8 @@ describe("QuestPhaseNoteImages", () => {
       {
         id: "path:/Users/me/shot two.jpeg",
         filename: "shot two.jpeg",
-        thumbnailUrl: "/api/fs/image?path=%2FUsers%2Fme%2Fshot+two.jpeg&variant=thumbnail",
-        fullUrl: "/api/fs/image?path=%2FUsers%2Fme%2Fshot+two.jpeg&variant=full",
+        thumbnailUrl: "/api/fs/file-link/image?path=%2FUsers%2Fme%2Fshot+two.jpeg&isRelative=0&variant=thumbnail",
+        fullUrl: "/api/fs/file-link/image?path=%2FUsers%2Fme%2Fshot+two.jpeg&isRelative=0&variant=full",
         title: "/Users/me/shot two.jpeg",
         sourcePath: "/Users/me/shot two.jpeg",
         download: {
@@ -142,7 +137,10 @@ describe("QuestPhaseNoteImages", () => {
     expect(within(thumbnailStrip).getByRole("button", { name: "Loading image attached.png" })).toBeDisabled();
     const speculativePreloads = screen.getAllByTestId("image-preview-preload");
     expect(speculativePreloads).toHaveLength(1);
-    expect(speculativePreloads[0]).toHaveAttribute("src", "/api/fs/image?path=%2Ftmp%2Fdistinct.png&variant=thumbnail");
+    expect(speculativePreloads[0]).toHaveAttribute(
+      "src",
+      "/api/fs/file-link/image?path=%2Ftmp%2Fdistinct.png&isRelative=0&variant=thumbnail",
+    );
 
     fireEvent.load(within(thumbnailStrip).getByTestId("image-preview-thumbnail-image"));
     fireEvent.load(speculativePreloads[0]!);

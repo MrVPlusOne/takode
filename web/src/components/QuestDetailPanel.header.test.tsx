@@ -10,7 +10,6 @@ import { resetLeaderTopicsForTest } from "../utils/leader-topics.js";
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
-    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
     getSettings: vi.fn().mockResolvedValue({ editorConfig: { editor: "none" } }),
     openVsCodeRemoteFile: vi.fn(),
     getQuestHistory: vi.fn(),

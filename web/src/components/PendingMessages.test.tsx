@@ -8,7 +8,6 @@ vi.mock("../ws.js", () => ({ sendToSession: mockSendToSession }));
 
 vi.mock("../api.js", () => ({
   api: {
-    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
     markNotificationDone: vi.fn(async () => ({})),
     revertToMessage: vi.fn(async () => ({})),
     starMessage: vi.fn(async () => ({})),

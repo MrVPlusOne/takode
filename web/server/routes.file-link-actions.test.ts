@@ -253,14 +253,16 @@ describe("file-link filesystem actions", () => {
     };
     const app = makeApp(tempDir, localImageVariantStore);
 
-    const fsImageRes = await app.request(`/api/fs/image?path=${encodeURIComponent(sourcePath)}&variant=thumbnail`);
-    const fileLinkRes = await app.request(
+    const absoluteRes = await app.request(
+      `/api/fs/file-link/image?path=${encodeURIComponent(sourcePath)}&isRelative=0&variant=thumbnail`,
+    );
+    const relativeRes = await app.request(
       `/api/fs/file-link/image?path=${encodeURIComponent("preview.png")}&isRelative=1&sessionId=s1&variant=full`,
     );
 
-    expect(fsImageRes.status).toBe(200);
-    expect(fileLinkRes.status).toBe(200);
-    for (const res of [fsImageRes, fileLinkRes]) {
+    expect(absoluteRes.status).toBe(200);
+    expect(relativeRes.status).toBe(200);
+    for (const res of [absoluteRes, relativeRes]) {
       expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
       expect(res.headers.get("Cache-Control")).not.toContain("immutable");
       expect(res.headers.get("X-Takode-Image-Variant-Cache")).toBe("hit");
@@ -278,7 +280,7 @@ describe("file-link filesystem actions", () => {
     const app = makeApp(tempDir, {
       getVariant: vi.fn(async () => ({ path: variantPath, contentType: "image/jpeg", cacheHit: true, etag: '"v1"' })),
     });
-    const url = `/api/fs/image?path=${encodeURIComponent(sourcePath)}&variant=thumbnail`;
+    const url = `/api/fs/file-link/image?path=${encodeURIComponent(sourcePath)}&isRelative=0&variant=thumbnail`;
 
     const unchanged = await app.request(url, { headers: { "If-None-Match": '"v1"' } });
     expect(unchanged.status).toBe(304);

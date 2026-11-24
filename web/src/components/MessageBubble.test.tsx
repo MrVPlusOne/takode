@@ -25,11 +25,6 @@ vi.mock("../api.js", () => ({
     starMessage: starMessageMock,
     unstarMessage: unstarMessageMock,
     markNotificationDone: markNotificationDoneMock,
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return `/api/fs/image?${params.toString()}`;
-    },
   },
 }));
 
@@ -513,7 +508,7 @@ describe("MessageBubble - user messages", () => {
     fireEvent.click(within(previewGroup).getByRole("button", { name: "Open image desktop.png" }));
     expect(screen.getByRole("dialog", { name: "Image preview: desktop.png" })).toBeTruthy();
     expect((await screen.findByTestId("image-preview-modal-image")).getAttribute("src")).toBe(
-      "/api/fs/image?path=%2Ftmp%2Fdesktop.png&variant=full",
+      "/api/fs/file-link/image?path=%2Ftmp%2Fdesktop.png&isRelative=0&variant=full&sessionId=test-session",
     );
   });
 

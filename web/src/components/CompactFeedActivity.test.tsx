@@ -9,7 +9,6 @@ import { CompactToolMessageGroups } from "./ToolMessageGroup.js";
 
 vi.mock("../api.js", () => ({
   api: {
-    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
     getToolResult: vi.fn(),
     markNotificationDone: vi.fn(async () => ({})),
     revertToMessage: vi.fn(async () => ({})),

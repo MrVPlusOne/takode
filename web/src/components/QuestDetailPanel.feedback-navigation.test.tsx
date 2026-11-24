@@ -13,7 +13,6 @@ vi.mock("../api.js", () => ({
     getQuestCommit: vi.fn(),
     getQuestMemoryCommit: vi.fn(),
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
-    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
   },
 }));
 

@@ -6,7 +6,6 @@ import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygr
 
 vi.mock("../../api.js", () => ({
   api: {
-    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
     getToolResult: vi.fn(),
   },
 }));

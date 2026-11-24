@@ -8,11 +8,6 @@ const writeClipboardTextMock = vi.hoisted(() => vi.fn(async (_text: string) => u
 
 vi.mock("../api.js", () => ({
   api: {
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return `/api/fs/image?${params.toString()}`;
-    },
     getSettings: vi.fn(async () => ({})),
     markNotificationDone: vi.fn(async () => ({})),
     starMessage: vi.fn(async () => ({})),
@@ -103,7 +98,7 @@ describe("MessageBubble image path links", () => {
     expect(screen.getByRole("dialog", { name: "Image preview: two.webp" })).toBeTruthy();
     expect(screen.getByTestId("image-preview-modal-index")).toHaveTextContent("2 of 2");
     expect((await screen.findByTestId("image-preview-modal-image")).getAttribute("src")).toBe(
-      "/api/fs/image?path=%2Ftmp%2Fshots%2Ftwo.webp&variant=full",
+      "/api/fs/file-link/image?path=%2Ftmp%2Fshots%2Ftwo.webp&isRelative=0&variant=full&sessionId=s1",
     );
     const pathRow = screen.getByTestId("image-preview-modal-path");
     expect(pathRow).toHaveTextContent("/tmp/shots/two.webp");

@@ -456,30 +456,6 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     }
   });
 
-  api.get("/fs/image", async (c) => {
-    const path = c.req.query("path");
-    if (!path) return c.json({ error: "path required" }, 400);
-    const absPath = resolve(path);
-    const contentType = IMAGE_MIME_BY_EXT[extname(absPath).toLowerCase()];
-    if (!contentType) {
-      return c.json({ error: "file is not a supported image type" }, 400);
-    }
-    try {
-      const variantKind = parseImageVariantKind(c.req.query("variant"));
-      if (variantKind) {
-        const variant = await localImageVariantStore.getVariant(absPath, contentType, variantKind);
-        return localImageVariantResponse(c, variant);
-      }
-      const content = await readFile(absPath);
-      return c.body(content, 200, {
-        "Content-Type": contentType,
-        "Cache-Control": "private, max-age=30",
-      });
-    } catch (e: unknown) {
-      return c.json({ error: e instanceof Error ? e.message : "Cannot read image file" }, 404);
-    }
-  });
-
   api.get("/fs/file-link/image", async (c) => {
     const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
     const variantKind = parseImageVariantKind(c.req.query("variant"));

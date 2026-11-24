@@ -5,11 +5,6 @@ import type { BrowserIncomingMessage, ChatMessage } from "../types.js";
 
 vi.mock("../api.js", () => ({
   api: {
-    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
-      const params = new URLSearchParams({ path });
-      if (variant) params.set("variant", variant);
-      return `/api/fs/image?${params.toString()}`;
-    },
     markNotificationDone: vi.fn(async () => ({})),
     revertToMessage: vi.fn(async () => ({})),
     starMessage: vi.fn(async () => ({})),
