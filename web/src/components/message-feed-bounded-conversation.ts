@@ -115,16 +115,20 @@ export function useMessageFeedBoundedConversation(input: {
     const visibleCount = thread?.visible_item_count ?? history!.visible_section_count;
     // Read after layout: restoring an older viewport or aligning a local send
     // may have changed follow intent since this render began.
+    const following = input.autoFollowEnabledRef.current;
     const announcement = {
       type: "conversation_view_update" as const,
       view: thread ? ("thread" as const) : ("history" as const),
       ...(thread ? { thread_key: input.normalizedThreadKey } : {}),
       ...(input.secondary ? { side: true } : {}),
-      from: input.autoFollowEnabledRef.current ? -1 : (thread?.from_item ?? history!.from_turn),
+      from: following ? -1 : (thread?.from_item ?? history!.from_turn),
       count: Math.max(thread?.item_count ?? history!.turn_count, sectionCount * visibleCount),
       section_count: sectionCount,
       visible_count: visibleCount,
       cached_window_hash: thread?.window_hash ?? history?.window_hash,
+      // A window that reached the newest messages also shows those that arrived after it, and a
+      // refresh of just its range would take them away from under the reader.
+      ...(!following && !(thread ?? history)!.has_newer_items ? { through_latest: true } : {}),
     };
     const signature = JSON.stringify([input.sessionId, announcement]);
     if (signature === lastAnnouncementRef.current) return;

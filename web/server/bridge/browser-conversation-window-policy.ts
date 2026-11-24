@@ -23,6 +23,8 @@ export interface BoundedHistoryViewRequest {
   cachedWindowHash?: string;
   targetMessageId?: string;
   targetHistoryIndex?: number;
+  /** Through the newest turns, however many arrived since (`through_latest`). */
+  throughLatest?: boolean;
 }
 
 export interface BoundedThreadViewRequest {
@@ -34,6 +36,8 @@ export interface BoundedThreadViewRequest {
   cachedWindowHash?: string;
   targetMessageId?: string;
   targetHistoryIndex?: number;
+  /** Through the newest items, however many arrived since (`through_latest`). */
+  throughLatest?: boolean;
 }
 
 export type BoundedConversationView =
@@ -371,6 +375,7 @@ export function recordBoundedConversationViewUpdate(
   if (!validPositiveWindow(update.from, update.count, update.section_count, update.visible_count)) return;
   const threadKey = normalizeSelectedFeedThreadKey(update.thread_key ?? MAIN_THREAD_KEY);
   if (update.view === "thread" && !isConversationThreadKey(threadKey)) return;
+  const throughLatest = update.through_latest ? { throughLatest: true } : {};
   // A side pane says what it shows the same way the main view does; its refreshes follow it.
   if (update.side) {
     if (update.view !== "thread") return;
@@ -381,6 +386,7 @@ export function recordBoundedConversationViewUpdate(
       sectionItemCount: update.section_count,
       visibleItemCount: update.visible_count,
       cachedWindowHash: update.cached_window_hash,
+      ...throughLatest,
     });
     return;
   }
@@ -392,6 +398,7 @@ export function recordBoundedConversationViewUpdate(
       sectionTurnCount: update.section_count,
       visibleSectionCount: update.visible_count,
       cachedWindowHash: update.cached_window_hash,
+      ...throughLatest,
     });
     return;
   }
@@ -402,6 +409,7 @@ export function recordBoundedConversationViewUpdate(
     sectionItemCount: update.section_count,
     visibleItemCount: update.visible_count,
     cachedWindowHash: update.cached_window_hash,
+    ...throughLatest,
   });
 }
 

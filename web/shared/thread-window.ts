@@ -46,6 +46,8 @@ export interface BuildThreadWindowInput {
   visibleItemCount: number;
   targetMessageId?: string;
   targetHistoryIndex?: number;
+  /** Ends the window at the newest item, past `itemCount` when more arrived since it was asked for. */
+  throughLatest?: boolean;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
   currentThreadResponseProjection?: LeaderThreadResponseProjection;
   /**
@@ -167,7 +169,7 @@ function buildThreadWindowSyncInScope(input: BuildThreadWindowInput): {
         : requestedFromItem < 0
           ? Math.max(0, totalItems - requestedItemCount)
           : Math.max(0, Math.min(requestedFromItem, Math.max(0, totalItems - 1)));
-  const endItem = Math.min(totalItems, initialFromItem + requestedItemCount);
+  const endItem = input.throughLatest ? totalItems : Math.min(totalItems, initialFromItem + requestedItemCount);
   const builtEntries = buildThreadWindowEntries({
     messageHistory: input.messageHistory,
     threadKey,

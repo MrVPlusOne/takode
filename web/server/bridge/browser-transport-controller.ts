@@ -73,6 +73,8 @@ import {
   shouldDeliverBrowserEventToSocket,
   withMessageViewKeys,
   type BoundedConversationView,
+  type BoundedHistoryViewRequest,
+  type BoundedThreadViewRequest,
   type BrowserConversationWindowSocketData,
 } from "./browser-conversation-window-policy.js";
 import { stripRecoveryDeliveryTransferMarker } from "./recovery-delivery-transfer-routing-context.js";
@@ -1202,15 +1204,7 @@ async function sendHistorySyncAttempt(
 export function sendHistoryWindowSync(
   session: Pick<BrowserTransportSessionLike, "messageHistory"> & { id?: string },
   ws: BrowserTransportSocketLike,
-  options: {
-    fromTurn: number;
-    turnCount: number;
-    sectionTurnCount: number;
-    visibleSectionCount: number;
-    cachedWindowHash?: string;
-    targetMessageId?: string;
-    targetHistoryIndex?: number;
-  },
+  options: BoundedHistoryViewRequest,
 ): void {
   const normalizedSectionTurnCount = Math.max(1, Math.floor(options.sectionTurnCount));
   const normalizedVisibleSectionCount = Math.max(1, Math.floor(options.visibleSectionCount));
@@ -1232,7 +1226,9 @@ export function sendHistoryWindowSync(
       messageHistory: session.messageHistory,
       turns,
       requestedFromTurn: Math.floor(options.fromTurn),
-      turnCount: normalizedTurnCount,
+      turnCount: options.throughLatest
+        ? Math.max(normalizedTurnCount, totalTurns - Math.floor(options.fromTurn))
+        : normalizedTurnCount,
       targetMessageId: options.targetMessageId,
       targetHistoryIndex: options.targetHistoryIndex,
       includeMessage: isRootAgentHistoryMessage,
@@ -1290,16 +1286,7 @@ export function sendThreadWindowSync(
     state?: Pick<SessionState, "leaderThreadStatuses">;
   },
   ws: BrowserTransportSocketLike,
-  options: {
-    threadKey: string;
-    fromItem: number;
-    itemCount?: number;
-    sectionItemCount: number;
-    visibleItemCount: number;
-    cachedWindowHash?: string;
-    targetMessageId?: string;
-    targetHistoryIndex?: number;
-  },
+  options: Omit<BoundedThreadViewRequest, "itemCount"> & { itemCount?: number },
 ): void {
   const normalizedSectionItemCount = Math.max(1, Math.floor(options.sectionItemCount));
   const normalizedVisibleItemCount = Math.max(1, Math.floor(options.visibleItemCount));
@@ -1327,6 +1314,7 @@ export function sendThreadWindowSync(
       visibleItemCount: normalizedVisibleItemCount,
       targetMessageId: options.targetMessageId,
       targetHistoryIndex: options.targetHistoryIndex,
+      throughLatest: options.throughLatest,
       includeMessage: isRootAgentHistoryMessage,
       currentThreadResponseProjection: responseState?.projection,
       memberResponseProjection,

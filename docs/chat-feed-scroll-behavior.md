@@ -42,6 +42,15 @@ reaches the page (the message their comments are on, else the message at the
 middle of the feed) and holds it there for a few seconds, the way a jump to a
 message is held (section 6). Touching or scrolling the feed lets go.
 
+The refreshes after a send and after an answer never take away what the feed
+already shows. A feed tells the server which part of the conversation it reads;
+when that part reaches the newest messages, it reads through the newest, so the
+messages that arrived since (often the answer being read) stay on the page. Before,
+the refresh re-sent only the range the feed first loaded: the newest messages
+vanished from under a reader who was near the end but not following, the view
+jumped back to older messages, and the newer ones came back only after scrolling
+down.
+
 There is no dedicated "scroll the new user message to the top" path.
 
 ### 2. Bottom-follow rule

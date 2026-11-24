@@ -288,6 +288,97 @@ describe("browser conversation refresh", () => {
     expect(parseCalls(socket).filter((message) => message.type === "thread_window_sync")).toHaveLength(1);
   });
 
+  it("keeps everything a reader of the newest window holds when the reader is not following", () => {
+    // Jiayi (Nov 24): after sending in a side chat, the view jumped back to older messages and the
+    // newer ones loaded only after scrolling down. A reader whose window reached the newest messages
+    // but who wasn't following (scrolled a little up, or landed just above the thread status rows)
+    // announced only its window's range. The browser also shows the messages that arrived since,
+    // and the refresh after the send or the answer re-sent the bare range: the newest messages left
+    // the page from under the reader. A window announced through the newest keeps them.
+    const socket = threadSocket("main");
+    const session = sessionWithTwelveRanges(socket);
+    setSideViews(socket.data, ["q-1"]);
+    const sideSync = () => {
+      socket.send.mockClear();
+      refreshBrowserConversationViews(session);
+      return parseCalls(socket).find(
+        (message) => message.type === "thread_window_sync" && message.thread_key === "q-1",
+      ) as Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>;
+    };
+    recordBoundedConversationViewUpdate(socket.data, {
+      type: "conversation_view_update",
+      view: "thread",
+      thread_key: "q-1",
+      side: true,
+      from: 2,
+      count: 10,
+      section_count: 10,
+      visible_count: 1,
+      through_latest: true,
+    });
+
+    session.messageHistory.push(directUser(), assistant("new-activity"));
+    const answer = assistant("new-answer");
+    answer.leaderThreadRole = "answer";
+    answer.leaderAnswerUserMessageIds = ["u1"];
+    answer.leaderAnswerObservedHistoryLength = session.messageHistory.length;
+    session.messageHistory.push(answer);
+    expect(finalizeRoutedLeaderResponseMessage(session, answer)).toMatchObject({ finalized: true });
+
+    const side = sideSync();
+    // The reading range still starts where it did, and nothing newer is left out.
+    expect(side.window).toMatchObject({ from_item: 2, item_count: 11, total_items: 13, has_newer_items: false });
+    const ids = side.entries.flatMap(({ message }) =>
+      message.type === "user_message" ? [message.id] : message.type === "assistant" ? [message.message.id] : [],
+    );
+    expect(ids).toEqual(expect.arrayContaining(["new-user", "new-activity", "new-answer"]));
+  });
+
+  it("keeps the newest turns of a history view announced through the newest", () => {
+    // The leader log reads a history window and has the same refresh: the turns that arrived after
+    // its window was sent stay when the reader isn't following.
+    const socket = {
+      data: {
+        sessionId: "refresh-session",
+        subscribed: true,
+        conversationView: {
+          kind: "history" as const,
+          request: { fromTurn: 0, turnCount: 2, sectionTurnCount: 1, visibleSectionCount: 2 },
+        },
+      },
+      send: vi.fn(),
+    };
+    const turn = (index: number) => ({ type: "user_message", id: `turn-${index}`, content: "turn", timestamp: index });
+    const session = {
+      id: "refresh-session",
+      browserSockets: new Set([socket]),
+      nextEventSeq: 1,
+      messageHistory: [turn(0), turn(1), turn(2), turn(3)],
+    } as unknown as BrowserTransportSessionLike;
+    recordBoundedConversationViewUpdate(socket.data, {
+      type: "conversation_view_update",
+      view: "history",
+      from: 1,
+      count: 2,
+      section_count: 1,
+      visible_count: 2,
+      through_latest: true,
+    });
+    session.messageHistory.push(turn(4) as BrowserIncomingMessage);
+
+    refreshBrowserConversationViews(session);
+    const sync = socket.send.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)))
+      .find((message) => message.type === "history_window_sync");
+    expect(sync.window).toMatchObject({ from_turn: 1, turn_count: 4, total_turns: 5, has_newer_items: false });
+    expect(sync.messages.map((message: { id: string }) => message.id)).toEqual([
+      "turn-1",
+      "turn-2",
+      "turn-3",
+      "turn-4",
+    ]);
+  });
+
   it("refreshes a side view with the window it says it shows, as it does the main view", () => {
     // A side pane that loaded older history asked for a fixed range, and every refresh re-sent that
     // range even after the user was back at the newest messages. It now tells the server what it

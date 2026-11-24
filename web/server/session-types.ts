@@ -785,6 +785,11 @@ export type BrowserOutgoingMessage =
       section_count: number;
       visible_count: number;
       cached_window_hash?: string;
+      /**
+       * The view reads from `from` through the newest messages: its window had nothing newer, so
+       * the messages that arrived since are on screen too, and a refresh must keep them.
+       */
+      through_latest?: boolean;
     }
   | {
       type: "leader_thread_tabs_update";

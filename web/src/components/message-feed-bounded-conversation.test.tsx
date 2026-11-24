@@ -52,6 +52,46 @@ describe("bounded conversation follow intent", () => {
     expect(sendToSession).toHaveBeenCalledTimes(announcements);
   });
 
+  it("announces a reader of the newest window through the newest messages, and an older window by its range", () => {
+    // A reader who isn't following but whose window reached the newest messages also sees those
+    // that arrive later; a refresh of the window's bare range would take them away (the side chat
+    // that jumped back after a send). A reader of older messages keeps its exact range.
+    const { result, rerender } = renderHook(
+      ({ applied }) => {
+        const follow = useMessageFeedFollowState(true);
+        useMessageFeedBoundedConversation({
+          sessionId: "through-latest",
+          connectionStatus: "connected",
+          normalizedThreadKey: "q-1",
+          selectedFeedWindowEnabled: true,
+          activeHistoryWindow: null,
+          activeThreadWindow: applied,
+          secondary: true,
+          ...follow,
+        });
+        return follow;
+      },
+      { initialProps: { applied: window } },
+    );
+    expect(sendToSession).toHaveBeenLastCalledWith(
+      "through-latest",
+      expect.not.objectContaining({ through_latest: true }),
+    );
+    act(() => result.current.setAutoFollowEnabled(false));
+    expect(sendToSession).toHaveBeenLastCalledWith(
+      "through-latest",
+      expect.objectContaining({ side: true, from: 0, through_latest: true }),
+    );
+    rerender({
+      applied: { ...window, from_item: 4, has_older_items: true, has_newer_items: true, window_hash: "older" },
+    });
+    expect(sendToSession).toHaveBeenLastCalledWith("through-latest", expect.objectContaining({ from: 4 }));
+    expect(sendToSession).toHaveBeenLastCalledWith(
+      "through-latest",
+      expect.not.objectContaining({ through_latest: true }),
+    );
+  });
+
   it("reads layout-established history intent before announcing, without shrinking a larger window", () => {
     // Viewport restoration runs in layout effects. The passive announcement
     // must not briefly publish the render's stale initial latest-follow value.
