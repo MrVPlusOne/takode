@@ -316,6 +316,7 @@ vi.mock("./claude-sdk-adapter.js", () => ({
 import { SessionStore } from "./session-store.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { CliLauncher, type LaunchOptions } from "./cli-launcher.js";
+import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
 import { DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS } from "../shared/scribe-context-limit.js";
 import { nonLeaderAutoCompactTokenLimitForUsableCapacity } from "./codex-context-launch-diagnostics.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
@@ -635,6 +636,16 @@ describe("launch", () => {
     await launcher.launch({ model: "claude-opus-4-20250514", cwd: "/tmp" });
 
     expect(sdkAdapterLaunches[0]!.options.model).toBe("claude-opus-4-20250514");
+  });
+
+  it("passes the catalog's spelling of a Claude model ID", async () => {
+    // Through Copilot, Claude Code counts a 200K window for "claude-fable-5-2"
+    // but Copilot's 1M for the catalog's "claude-fable-5.2", so a leader
+    // spawning with the dashed spelling must still get the full window.
+    recordClaudeModelCatalog([{ value: "fable", resolvedModel: "claude-fable-5.2" }]);
+    await launcher.launch({ model: "claude-fable-5-2", cwd: "/tmp" });
+
+    expect(sdkAdapterLaunches[0]!.options.model).toBe("claude-fable-5.2");
   });
 
   it("passes Claude reasoning effort and 1M context beta when provided", async () => {

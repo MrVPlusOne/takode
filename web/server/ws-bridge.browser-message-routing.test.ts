@@ -8,6 +8,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
+import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -1615,6 +1616,21 @@ describe("Browser message routing", () => {
     await vi.waitFor(() => expect(session.state.model).toBe("claude-fable-5.2"));
     expect(cli.query.getContextUsage).toHaveBeenCalledWith({ detail: "summary" });
     expect(session.state.claude_token_details!.modelContextWindow).toBe(1_000_000);
+  });
+
+  it("set_model: switches to the catalog's spelling of the model ID", async () => {
+    // Claude Code takes "claude-fable-5-2" too, but through Copilot only the
+    // catalog's "claude-fable-5.2" gets Copilot's 1M window; the dashed
+    // spelling gets 200K and compacts early.
+    recordClaudeModelCatalog([{ value: "fable", resolvedModel: "claude-fable-5.2" }]);
+    const launchInfo = { model: "claude-opus-5.5" };
+    bridge.setLauncher({ getSession: vi.fn(() => launchInfo), touchActivity: vi.fn() } as any);
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_model", model: "claude-fable-5-2" }));
+
+    expect(cli.query.setModel).toHaveBeenCalledWith("claude-fable-5.2");
+    expect(launchInfo.model).toBe("claude-fable-5.2");
+    await vi.waitFor(() => expect(bridge.getSession("s1")!.state.model).toBe("claude-fable-5.2"));
   });
 
   it("set_model: a refused model keeps the running model and restarts the session once idle", async () => {

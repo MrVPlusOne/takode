@@ -15,6 +15,7 @@ import type {
 } from "./session-types.js";
 import { assertNever, normalizePersistedBackendType } from "./session-types.js";
 import type { ClaudeSdkAdapter } from "./claude-sdk-adapter.js";
+import { catalogClaudeModelId } from "./claude-model-catalog.js";
 import type { RecorderManager } from "./recorder.js";
 import { CodexAdapter } from "./codex-adapter.js";
 import { containerManager } from "./container-manager.js";
@@ -1146,7 +1147,7 @@ export class CliLauncher {
     info.state = "starting";
     const nodeHost = this.nodeHostForLaunch(info, options);
     const adapter: ClaudeSdkAdapter = new ClaudeSdkAdapter(sessionId, {
-      model: options.model,
+      model: options.model && catalogClaudeModelId(options.model),
       cwd: info.cwd,
       permissionMode: options.permissionMode,
       reasoningEffort: options.claudeReasoningEffort,

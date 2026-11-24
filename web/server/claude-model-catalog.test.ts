@@ -107,6 +107,30 @@ describe("recordClaudeModelCatalog", () => {
   });
 });
 
+describe("catalogClaudeModelId", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("maps a model ID with dots and dashes swapped to the catalog's spelling", async () => {
+    // Through Copilot, Claude Code counts 200K for "claude-fable-5-2" but 1M
+    // for "claude-fable-5.2", the spelling Copilot lists and the catalog reports.
+    vi.resetModules();
+    const catalog = await import("./claude-model-catalog.js");
+    expect(catalog.catalogClaudeModelId("claude-fable-5-2")).toBe("claude-fable-5-2");
+
+    catalog.recordClaudeModelCatalog([
+      ...CLI_CATALOG,
+      { value: "fable", resolvedModel: "claude-fable-5.2", displayName: "claude-fable-5.2" },
+    ]);
+    expect(catalog.catalogClaudeModelId("claude-fable-5-2")).toBe("claude-fable-5.2");
+    expect(catalog.catalogClaudeModelId("claude-sonnet-5.5")).toBe("claude-sonnet-5-5");
+    // Listed IDs and models the catalog doesn't know pass through unchanged.
+    expect(catalog.catalogClaudeModelId("claude-opus-5.5")).toBe("claude-opus-5.5");
+    expect(catalog.catalogClaudeModelId("claude-opus-4-6[1m]")).toBe("claude-opus-4-6[1m]");
+  });
+});
+
 describe("saved catalog across restarts", () => {
   const tempDirs: string[] = [];
   afterEach(async () => {

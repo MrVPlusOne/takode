@@ -1,6 +1,7 @@
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { inferContextWindowFromModel } from "./context-usage.js";
 import type { ClaudeModelSwitchOutcome } from "../claude-sdk-adapter.js";
+import { catalogClaudeModelId } from "../claude-model-catalog.js";
 import type {
   AdapterBrowserRoutingDeps,
   AdapterBrowserRoutingSessionLike,
@@ -23,15 +24,17 @@ import {
 } from "../../shared/codex-reasoning-effort.js";
 
 /**
- * Record `model` as the session's Claude model for its next launch. A running
+ * Record `requestedModel`, in the catalog's spelling (`catalogClaudeModelId`),
+ * as the session's Claude model for its next launch. A running
  * Claude Code switches only if it accepts the model, so the session shows the
  * new model once `handleClaudeModelSwitch` hears that it did.
  */
 export function handleSetModel(
   session: AdapterBrowserRoutingSessionLike,
-  model: string,
+  requestedModel: string,
   deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession">,
 ): void {
+  const model = catalogClaudeModelId(requestedModel);
   const launchInfo = deps.getLauncherSessionInfo(session.id);
   if (launchInfo) launchInfo.model = model;
   if (session.claudeSdkAdapter) {

@@ -98,6 +98,24 @@ export async function resolveClaudeModelCatalog(
   return latestCatalog;
 }
 
+/**
+ * The catalog's spelling of `model` when the catalog lists the same model ID
+ * with dots and dashes swapped (`claude-fable-5-2` for `claude-fable-5.2`);
+ * otherwise `model` unchanged. Claude Code accepts both spellings, but only
+ * the one its provider lists gets the provider's context window: through
+ * Copilot, Claude Code 2.1.311 counts 200K for `claude-fable-5-2` and compacts
+ * early, while `claude-fable-5.2` gets Copilot's 1M.
+ */
+export function catalogClaudeModelId(model: string): string {
+  if (!latestCatalog || latestCatalog.some((entry) => entry.value === model)) return model;
+  const spelling = modelIdSpelling(model);
+  return latestCatalog.find((entry) => modelIdSpelling(entry.value) === spelling)?.value ?? model;
+}
+
+function modelIdSpelling(id: string): string {
+  return id.toLowerCase().replace(/\./g, "-");
+}
+
 /** Resolves once every queued save has finished. */
 export function _flushClaudeModelCatalogForTest(): Promise<void> {
   return pendingWrite;
