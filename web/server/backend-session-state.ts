@@ -32,4 +32,10 @@ export interface BackendSessionState {
    * Cleared when the model answers or the turn ends. Never restored from disk.
    */
   claude_api_retry?: { attempt: number; maxRetries: number; status: number | null } | null;
+  /**
+   * Base64 image data in the Claude session's own context since its last
+   * compaction; Takode compacts before a turn once it passes a budget
+   * (`bridge/claude-image-compaction.ts`).
+   */
+  claude_context_image_chars?: number;
 }

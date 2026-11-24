@@ -283,11 +283,17 @@ ${
       "Commands on another machine are still yours: ask first wherever you would ask before running them here, such as cluster job launches or changes to shared data. For heavy or many parallel commands on a shared machine (builds, compiles, checks), add `--pool <name>` so they share that machine's budget, the pool `<name>@<machine>`, instead of overloading it; leaders size it with `takode lease configure <name>@<machine> --capacity N`. Without `--host`, a pooled command runs on whichever machine with that pool configured frees a slot first.",
   );
 
+  // Claude's Read re-encodes large PNG/JPEG images itself (claude-read-image-hook.ts); Codex reads files as they are.
+  const localImageReading =
+    opts?.backend === "codex"
+      ? "For local/generated screenshots, prefer optimized agent-readable files. Takode's `agent-browser screenshot` wrapper preserves the original and returns a `.takode-agent.` sibling by default. Use `--takode-original` or `TAKODE_AGENT_BROWSER_ORIGINAL=1` only when precision/debugging requires the original. For other local/generated images, run `quest optimize-image <path>` and use the returned sibling path. Do not recompress paths already containing `.takode-agent.`."
+      : "Read local/generated screenshots and renders directly: Read re-encodes large PNG and JPEG images as WebP before the model sees them, so you need not make optimized copies first. Every image you read stays in each later request until the conversation is compacted, so read what you need (a crop, or one contact sheet instead of many views) rather than every intermediate render.";
   parts.push(
     "## Image Reading\n\n" +
       "If a user message includes image attachments, read every attached image before you respond. Make that your first step for that turn.\n\n" +
       "Always try user-uploaded chat or Questmaster images directly first; new uploads already pass through Takode's image pipeline.\n\n" +
-      "For local/generated screenshots, prefer optimized agent-readable files. Takode's `agent-browser screenshot` wrapper preserves the original and returns a `.takode-agent.` sibling by default. Use `--takode-original` or `TAKODE_AGENT_BROWSER_ORIGINAL=1` only when precision/debugging requires the original. For other local/generated images, run `quest optimize-image <path>` and use the returned sibling path. Do not recompress paths already containing `.takode-agent.`.\n\n" +
+      localImageReading +
+      "\n\n" +
       "When you show a screenshot or other image to the user, link the original file, not its `.takode-agent.` copy, which is reduced for model reading. Capture browser screenshots at device scale 2 (`agent-browser set viewport <w> <h> 2`), and when combining several into one image, crop them instead of scaling them down: small text blurs quickly.",
   );
 

@@ -2,6 +2,7 @@ import { openTurnStartedAt } from "../remote-host/host-restart-gate.js";
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { sessionTag } from "../session-tag.js";
 import { handleClaudeNetworkWaitMessage } from "./claude-network-wait.js";
+import { consumeImageCompactionResult, trackClaudeContextImages } from "./claude-image-compaction.js";
 import { browserSessionInitState } from "../session-types.js";
 import type { BackgroundTaskInfo } from "./adapter-interface.js";
 import type { ClaudeModelSwitchOutcome } from "../claude-sdk-adapter.js";
@@ -171,6 +172,8 @@ export function attachClaudeSdkAdapterLifecycle(
       session.lastAdapterFailureAt = null;
     }
 
+    trackClaudeContextImages(session, msg);
+    if (consumeImageCompactionResult(session, msg)) return;
     if (handleClaudeNetworkWaitMessage(session, msg, { broadcastToBrowsers: deps.broadcastToBrowsers })) return;
 
     if (msg.type === "session_init") {

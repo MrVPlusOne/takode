@@ -49,6 +49,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "backend_error"
     | "backend_reconnect"
     | "backend_state"
+    | "claude_context_image_chars"
     | "claude_reasoning_effort"
     | "claude_token_details"
     | "codex_rate_limits"

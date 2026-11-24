@@ -23,6 +23,7 @@ import { getEnrichedPath } from "./path-resolver.js";
 import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
 import { CopilotWebTools } from "./claude-copilot-web-tools.js";
 import { claudeLongSleepHook } from "./bridge/bash-sleep-policy.js";
+import { claudeReadImageHook } from "./claude-read-image-hook.js";
 import { claudeEmptySlackThreadHook } from "./slack-thread-read-hint.js";
 import {
   formatVsCodeSelectionPrompt,
@@ -450,7 +451,7 @@ export class ClaudeSdkAdapter
       hooks: {
         ...copilotWebTools.hooks,
         PreToolUse: [...(copilotWebTools.hooks.PreToolUse ?? []), claudeLongSleepHook],
-        PostToolUse: [...(copilotWebTools.hooks.PostToolUse ?? []), claudeEmptySlackThreadHook],
+        PostToolUse: [...(copilotWebTools.hooks.PostToolUse ?? []), claudeEmptySlackThreadHook, claudeReadImageHook],
       },
       settingSources: ["user", "project", "local"],
       // query() starts from an empty system prompt unless told otherwise; keep

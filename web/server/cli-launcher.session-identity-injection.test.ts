@@ -293,6 +293,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { SessionStore } from "./session-store.js";
 import { CliLauncher } from "./cli-launcher.js";
+import { buildCompanionInstructions } from "./cli-launcher-instructions.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import type { TakodeEvent, TakodeHerdReassignedEventData } from "./session-types.js";
@@ -439,7 +440,13 @@ describe("session identity injection", () => {
     );
     expect(sysPrompt).toContain("Make that your first step for that turn.");
     expect(sysPrompt).toContain("Always try user-uploaded chat or Questmaster images directly first");
-    expect(sysPrompt).toContain("Takode's `agent-browser screenshot` wrapper preserves the original");
-    expect(sysPrompt).toContain("Do not recompress paths already containing `.takode-agent.`");
+    // Claude's Read re-encodes large images itself, so Claude is told to read renders
+    // directly; Codex reads files as they are and keeps the optimized-copy workflow.
+    expect(sysPrompt).toContain("Read re-encodes large PNG and JPEG images as WebP");
+    expect(sysPrompt).not.toContain("quest optimize-image");
+    const codexPrompt = buildCompanionInstructions({ backend: "codex" });
+    expect(codexPrompt).toContain("Takode's `agent-browser screenshot` wrapper preserves the original");
+    expect(codexPrompt).toContain("Do not recompress paths already containing `.takode-agent.`");
+    expect(codexPrompt).not.toContain("Read re-encodes large PNG and JPEG images");
   });
 });

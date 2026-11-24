@@ -1,5 +1,6 @@
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { normalizeAdapterUserMessage, prepareAnnotatedUserMessage } from "./user-message-delivery.js";
+import { compactBeforeTurnIfImageHeavy } from "./claude-image-compaction.js";
 import { acknowledgeMonitoredThreadResult } from "../thread-monitoring.js";
 import { formatAnnotatedMessage, readAnnotationMessage } from "../../shared/conversation-annotations.js";
 import type { ImageRef } from "../image-store.js";
@@ -1421,6 +1422,9 @@ export function routeAdapterBrowserMessage(
       return true;
     }
     if (adapter) {
+      if (adapter === session.claudeSdkAdapter && msg.type === "user_message" && ingested && !ingested.wasGenerating) {
+        compactBeforeTurnIfImageHeavy(session, adapter);
+      }
       const accepted = adapter.sendBrowserMessage(adapterMsg);
       if (!accepted) {
         const sdkQueuedInternally =
