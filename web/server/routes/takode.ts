@@ -614,6 +614,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       gitHeadSha: bridge?.git_head_sha || null,
       totalCostUsd: bridge?.total_cost_usd || 0,
       isCompacting: bridge?.is_compacting || false,
+      claudeApiRetry: bridge?.claude_api_retry ?? null,
       tools: bridge?.tools || [],
       mcpServers: bridge?.mcp_servers || [],
       claudeCodeVersion: bridge?.claude_code_version || null,

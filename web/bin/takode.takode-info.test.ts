@@ -233,6 +233,34 @@ describe("takode info", () => {
     expect(hostRequests).toEqual(["/api/hosts"]);
   });
 
+  // A Claude turn whose model requests keep failing (Copilot's 408, say) must
+  // not read as an ordinary generating turn to a leader checking on it.
+  it("prints a Claude model request Claude Code is retrying", async () => {
+    const server = createInfoServer({
+      sessionId: "retry-info",
+      sessionNum: 62,
+      name: "Retrying",
+      state: "running",
+      backendType: "claude-sdk",
+      model: "claude-fable-5.2",
+      cwd: "/tmp/retry",
+      cliConnected: true,
+      isGenerating: true,
+      claudeApiRetry: { attempt: 7, maxRetries: 15, status: 408 },
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const result = await runTakode(["info", "retry-info", "--port", String((server.address() as AddressInfo).port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    });
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Model Request  failed with HTTP 408; Claude Code retrying (attempt 7 of 15)");
+  });
+
   it("reports requested versus effective Codex reasoning without promoting an unverified Ultra label", async () => {
     const server = createInfoServer({
       sessionId: "worker-effort",

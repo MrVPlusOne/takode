@@ -10,6 +10,11 @@ import { sessionTag } from "../session-tag.js";
  * running with a "waiting for connection" state, and Takode sends Claude a
  * model-only continuation once the network is back. Raw errors go to the
  * server log only.
+ *
+ * Every retry Claude Code reports, with or without an HTTP status, is also
+ * shown as `claude_api_retry` until the model answers. Otherwise a turn whose
+ * requests keep failing (Copilot's 408 for a request body it could not read
+ * within 60 s, say) looks like a model thinking for many minutes.
  */
 
 /** Model-only prompt that resumes the interrupted turn. It is never stored in the feed. */
@@ -64,7 +69,7 @@ export interface ClaudeNetworkWaitSession {
     hasTurnInFlight(): boolean;
     sendBrowserMessage(msg: BrowserOutgoingMessage): boolean;
   } | null;
-  state: Pick<SessionState, "claude_network_wait" | "host_id">;
+  state: Pick<SessionState, "claude_network_wait" | "claude_api_retry" | "host_id">;
 }
 
 export interface ClaudeNetworkWaitDeps {
@@ -100,14 +105,16 @@ export function handleClaudeNetworkWaitMessage(
   deps: ClaudeNetworkWaitDeps,
 ): boolean {
   if (msg.type === "system" && msg.subtype === "api_retry") {
+    if (!session.isGenerating) return true;
+    const status = typeof msg.error_status === "number" ? msg.error_status : null;
+    publishRetry(session, deps, { attempt: msg.attempt, maxRetries: msg.max_retries, status });
     // A null status means the request got no HTTP response at all.
-    if (msg.error_status == null && session.isGenerating) {
-      console.warn(
-        `[claude-network] Model API unreachable for session ${sessionTag(session.id)}; Claude is retrying ` +
-          `(attempt ${msg.attempt}/${msg.max_retries}, ${msg.error})`,
-      );
-      enterWait(session, deps);
-    }
+    console.warn(
+      `[claude-network] Model request for session ${sessionTag(session.id)} failed ` +
+        `(${status == null ? "no response" : `HTTP ${status}`}, ${msg.error}); Claude is retrying ` +
+        `(attempt ${msg.attempt}/${msg.max_retries})`,
+    );
+    if (status == null) enterWait(session, deps);
     return true;
   }
 
@@ -132,15 +139,19 @@ export function handleClaudeNetworkWaitMessage(
     return true;
   }
 
-  if (session.state.claude_network_wait && isModelActivity(msg)) {
-    console.log(`[claude-network] Model API reachable again for session ${sessionTag(session.id)}`);
-    stopClaudeNetworkWait(session, deps);
+  if (isModelActivity(msg)) {
+    publishRetry(session, deps, null);
+    if (session.state.claude_network_wait) {
+      console.log(`[claude-network] Model API reachable again for session ${sessionTag(session.id)}`);
+      stopClaudeNetworkWait(session, deps);
+    }
   }
   return false;
 }
 
-/** End any network wait for the session, e.g. when its turn ends for another reason. */
+/** End any network wait and retry progress for the session, e.g. when its turn ends for another reason. */
 export function stopClaudeNetworkWait(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDeps): void {
+  publishRetry(session, deps, null);
   const runtime = runtimes.get(session);
   if (runtime?.timer) clearTimeout(runtime.timer);
   runtimes.delete(session);
@@ -170,6 +181,16 @@ function isModelActivity(msg: any): boolean {
   return (
     msg.type === "assistant" || msg.type === "stream_event" || msg.type === "tool_progress" || msg.type === "result"
   );
+}
+
+function publishRetry(
+  session: ClaudeNetworkWaitSession,
+  deps: ClaudeNetworkWaitDeps,
+  retry: SessionState["claude_api_retry"],
+): void {
+  if (!retry && !session.state.claude_api_retry) return;
+  session.state.claude_api_retry = retry ?? null;
+  deps.broadcastToBrowsers(session, { type: "session_update", session: { claude_api_retry: retry ?? null } });
 }
 
 function enterWait(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDeps): void {

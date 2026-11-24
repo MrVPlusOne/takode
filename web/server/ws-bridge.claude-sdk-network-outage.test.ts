@@ -302,6 +302,49 @@ describe("Claude SDK turns during a network outage", () => {
     expect(backend.promptTexts()).toEqual([]);
   });
 
+  it("shows Claude's retries of a request the API answered with an error, without pausing the turn", () => {
+    // Copilot answered every request of a Fable turn with 408 ("Timed out
+    // reading request body") for 18 minutes while Claude Code retried; with
+    // the retries hidden, the turn looked like the model thinking.
+    const { session, backend, browserSends } = startTurn();
+    const retry408 = JSON.parse(API_RETRY);
+    backend.message(JSON.stringify({ ...retry408, attempt: 3, max_retries: 15, error_status: 408 }));
+
+    const retry = { attempt: 3, maxRetries: 15, status: 408 };
+    expect(session.state.claude_api_retry).toEqual(retry);
+    expect(browserSends).toContainEqual({ type: "session_update", session: { claude_api_retry: retry } });
+    // The API answered, so this is not a network outage: no wait, no hidden continue.
+    expect(session.state.claude_network_wait ?? null).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    expect(backend.promptTexts()).toEqual([]);
+
+    // The model answering again clears it.
+    backend.message(ASSISTANT);
+    expect(session.state.claude_api_retry).toBeNull();
+    expect(browserSends).toContainEqual({ type: "session_update", session: { claude_api_retry: null } });
+  });
+
+  it("clears retry progress when an interrupted turn ends and never persists it", async () => {
+    const { session, backend } = startTurn();
+    backend.message(JSON.stringify({ ...JSON.parse(API_RETRY), error_status: 408 }));
+    expect(buildPersistedSessionPayload(session as any).state).not.toHaveProperty("claude_api_retry");
+
+    // Claude Code answers an interrupt with an aborted result, as #3560's turn did.
+    await bridge.interruptSession("s1", "user");
+    backend.message(
+      JSON.stringify({
+        ...JSON.parse(SUCCESS),
+        subtype: "error_during_execution",
+        is_error: true,
+        terminal_reason: "aborted_streaming",
+        uuid: "result-interrupted",
+      }),
+    );
+
+    expect(session.isGenerating).toBe(false);
+    expect(session.state.claude_api_retry).toBeNull();
+  });
+
   it("does not persist the waiting state", () => {
     // The resume timer lives in this server process; a restored session must not show a stale wait.
     const { session, backend } = startTurn();

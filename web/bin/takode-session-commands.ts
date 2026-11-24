@@ -543,6 +543,11 @@ function printSessionInfo(data: TakodeSessionInfo, hosts: Map<string, HostSummar
   const model = data.model || "unknown";
   console.log(`  Backend        ${formatInlineText(backend)}  model: ${formatInlineText(model)}`);
   if (data.claudeCodeVersion) console.log(`  CLI Version    ${formatInlineText(data.claudeCodeVersion)}`);
+  if (data.claudeApiRetry) {
+    const { attempt, maxRetries, status } = data.claudeApiRetry;
+    const failure = status == null ? "got no response" : `failed with HTTP ${status}`;
+    console.log(`  Model Request  ${failure}; Claude Code retrying (attempt ${attempt} of ${maxRetries})`);
+  }
   if (data.permissionMode) console.log(`  Permissions    ${formatInlineText(data.permissionMode)}`);
   if (typeof data.askPermission === "boolean") {
     console.log(`  Ask Mode       ${data.askPermission ? "ask" : "no-ask"}`);

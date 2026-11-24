@@ -45,6 +45,7 @@ export function ElapsedTimer({
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const streamRetry = useStore((s) => s.sessions?.get(sessionId)?.codex_stream_retry ?? null);
   const networkWait = useStore((s) => s.sessions?.get(sessionId)?.claude_network_wait ?? null);
+  const apiRetry = useStore((s) => s.sessions?.get(sessionId)?.claude_api_retry ?? null);
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
   const topicKeyName = useTopicKeyNamer();
   const bridgeIsOrchestrator = useStore((s) => s.sessions?.get(sessionId)?.isOrchestrator === true);
@@ -81,7 +82,7 @@ export function ElapsedTimer({
     return () => clearInterval(interval);
   }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
 
-  const showTimer = sessionStatus === "running" && (elapsed > 0 || !!streamRetry || !!networkWait);
+  const showTimer = sessionStatus === "running" && (elapsed > 0 || !!streamRetry || !!networkWait || !!apiRetry);
 
   useLayoutEffect(() => {
     if (!onVisibleHeightChange) return;
@@ -131,26 +132,32 @@ export function ElapsedTimer({
       ? "Napping..."
       : networkWait
         ? "Waiting for connection..."
-        : streamRetry
-          ? "Retrying response..."
-          : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
-              isLeaderSession,
-              isReviewerSession: sdkReviewerOf !== null,
-              claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
-              reviewedQuestId,
-              threadName: activeTurnRoute?.threadKey
-                ? topicKeyName(sessionId, activeTurnRoute.threadKey)?.name
-                : undefined,
-            });
+        : apiRetry
+          ? `Retrying model request (${apiRetry.attempt} of ${apiRetry.maxRetries})...`
+          : streamRetry
+            ? "Retrying response..."
+            : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
+                isLeaderSession,
+                isReviewerSession: sdkReviewerOf !== null,
+                claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
+                reviewedQuestId,
+                threadName: activeTurnRoute?.threadKey
+                  ? topicKeyName(sessionId, activeTurnRoute.threadKey)?.name
+                  : undefined,
+              });
   const retryDetail = networkWait
     ? networkWait.autoResumePaused
       ? "The model API still can't be reached after several automatic retries, so Takode stopped retrying on its own. " +
         "Send a message to try again; Takode also retries when this machine reconnects to a network."
       : "The model API can't be reached. Takode will continue this turn automatically once the connection is back."
-    : streamRetry
-      ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
-      : undefined;
-  const dotHeld = isStuck || !!streamingPauseStartedAt || !!networkWait;
+    : apiRetry
+      ? `The model request failed${apiRetry.status == null ? " with no response" : ` with HTTP ${apiRetry.status}`}, ` +
+        `and Claude Code is retrying it (attempt ${apiRetry.attempt} of ${apiRetry.maxRetries}). ` +
+        "Nothing new is being written meanwhile. If every attempt fails, the turn ends with the error."
+      : streamRetry
+        ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
+        : undefined;
+  const dotHeld = isStuck || !!streamingPauseStartedAt || !!networkWait || !!apiRetry;
   const dotColor = dotHeld ? "text-cc-attention" : "text-cc-primary";
   const canNavigateActiveTurn =
     variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !streamingPauseStartedAt;

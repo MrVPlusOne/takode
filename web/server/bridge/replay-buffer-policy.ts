@@ -59,7 +59,7 @@ export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boo
 }
 
 /** Transient retry/wait presentation; reconnecting browsers get the current value from the session snapshot. */
-const TRANSIENT_SESSION_KEYS = new Set(["codex_stream_retry", "claude_network_wait"]);
+const TRANSIENT_SESSION_KEYS = new Set(["codex_stream_retry", "claude_network_wait", "claude_api_retry"]);
 
 function isTransientRetryUpdate(update: object): boolean {
   const keys = Object.keys(update);

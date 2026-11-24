@@ -35,6 +35,7 @@ import {
   PLAYGROUND_STREAM_RETRY_SESSION_ID,
   PLAYGROUND_NETWORK_WAIT_SESSION_ID,
   PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID,
+  PLAYGROUND_API_RETRY_SESSION_ID,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
   MSG_ASSISTANT,
   MSG_ASSISTANT_TOOLS,
@@ -91,6 +92,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_STREAM_RETRY_SESSION_ID,
       PLAYGROUND_NETWORK_WAIT_SESSION_ID,
       PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID,
+      PLAYGROUND_API_RETRY_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
       PLAYGROUND_DISCONNECTED_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
@@ -1671,6 +1673,16 @@ export function usePlaygroundSeed() {
     store.setConnectionStatus(PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID, "connected");
     store.setCliConnected(PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID, true);
     store.setSessionStatus(PLAYGROUND_NETWORK_WAIT_PAUSED_SESSION_ID, "running");
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_API_RETRY_SESSION_ID,
+      backend_type: "claude-sdk",
+      backend_state: "connected",
+      claude_api_retry: { attempt: 7, maxRetries: 15, status: 408 },
+    });
+    store.setConnectionStatus(PLAYGROUND_API_RETRY_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_API_RETRY_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_API_RETRY_SESSION_ID, "running");
 
     store.addSession({
       ...session,

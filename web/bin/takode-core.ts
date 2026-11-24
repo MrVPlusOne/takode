@@ -550,6 +550,8 @@ export type TakodeSessionInfo = {
   numTurns?: number;
   contextUsedPercent?: number;
   isCompacting?: boolean;
+  /** Claude Code is retrying a failed model request in the current turn. */
+  claudeApiRetry?: { attempt: number; maxRetries: number; status: number | null } | null;
   permissionMode?: string | null;
   askPermission?: boolean;
   tools?: string[];
@@ -792,6 +794,7 @@ export function buildSessionInfoJson(
     numTurns: session.numTurns ?? 0,
     contextUsedPercent: session.contextUsedPercent ?? 0,
     isCompacting: session.isCompacting ?? false,
+    claudeApiRetry: session.claudeApiRetry ?? null,
     permissionMode: session.permissionMode ?? null,
     askPermission: session.askPermission ?? null,
     claudeCodeVersion: session.claudeCodeVersion ?? null,

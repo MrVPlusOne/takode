@@ -26,4 +26,10 @@ export interface BackendSessionState {
    * input or a network change. Never restored from disk.
    */
   claude_network_wait?: { since: number; autoResumePaused?: boolean } | null;
+  /**
+   * Claude Code is retrying a failed model request within the current turn
+   * (`api_retry`): `status` is the HTTP status, or null when no response came.
+   * Cleared when the model answers or the turn ends. Never restored from disk.
+   */
+  claude_api_retry?: { attempt: number; maxRetries: number; status: number | null } | null;
 }
