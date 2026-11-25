@@ -55,29 +55,28 @@ const THREAD_SUMMARY = /^Thread: (\d+) repl(?:y|ies) \(latest: .*\)\s*$/;
  * result, in the order printed. Each message is a header (`=== Message from
  * <author> at <time> ===`, or a thread section followed by `From:` and `Time:`
  * lines), a `Message TS:` line and its text. The reactions Slack prints after
- * the text are dropped; a thread's reply count is kept as `replies`.
+ * the text are dropped; a thread's reply count is kept as `replies`. The text
+ * stays in Slack's own markup (see `slackMarkdown`).
  */
 export function parseSlackMessages(text: string): SlackMessage[] {
   const messages: SlackMessage[] = [];
   let author = "";
   let time = "";
   let inHeader = false;
-  let current: {
-    ts: string;
-    author: string;
-    time: string;
-    lines: string[];
-    replies?: number;
-  } | null = null;
+  let current: { ts: string; author: string; time: string; lines: string[] } | null = null;
   const finish = () => {
-    if (current)
+    if (current) {
+      const lines = unquote(current.lines);
+      const summary = lines.findIndex((line) => THREAD_SUMMARY.test(line));
+      const replies = summary < 0 ? 0 : Number(lines.splice(summary, 1)[0]!.match(THREAD_SUMMARY)![1]);
       messages.push({
         ts: current.ts,
         author: current.author,
         time: current.time,
-        text: body(current.lines),
-        ...(current.replies ? { replies: current.replies } : {}),
+        text: body(lines),
+        ...(replies ? { replies } : {}),
       });
+    }
     current = null;
   };
   for (const line of text.split(/\r?\n/)) {
@@ -102,11 +101,6 @@ export function parseSlackMessages(text: string): SlackMessage[] {
       if (at) time = at;
       continue;
     }
-    const replies = current && line.match(THREAD_SUMMARY)?.[1];
-    if (current && replies) {
-      current.replies = Number(replies);
-      continue;
-    }
     current?.lines.push(line);
   }
   finish();
@@ -128,9 +122,10 @@ export function parseSlackSearchMessages(text: string): SlackMessage[] {
     const threadTs = block.match(/^Permalink: .*[?&]thread_ts=(\d+\.\d+)/m)?.[1];
     const replies = Number(block.match(/^Reply count: (\d+)\s*$/m)?.[1] ?? 0);
     const textStart = block.match(/^Text: ?/m);
-    const lines = textStart ? block.slice(textStart.index! + textStart[0].length).split(/\r?\n/) : [];
+    const printed = textStart ? block.slice(textStart.index! + textStart[0].length).split(/\r?\n/) : [];
     // Each result ends with a `---` line before the next one.
-    while (lines.length > 0 && /^(?:---)?\s*$/.test(lines.at(-1)!)) lines.pop();
+    while (printed.length > 0 && /^(?:---)?\s*$/.test(printed.at(-1)!)) printed.pop();
+    const lines = unquote(printed);
     messages.push({
       ts,
       // `From: Ada Lovelace (ID: U123)`, with ` [BOT]` after a bot's.
@@ -212,7 +207,7 @@ export function formatSlackUpdatesNotice(
   for (const update of updates) {
     const id = `\`${slackConversationId(update)}\``;
     const intro = update.introduce
-      ? `: ${update.threadTs ? "thread" : "direct messages"} "${update.label}"${update.threadKey ? `, read in ${update.threadKey}` : ""}`
+      ? `: ${update.threadTs ? "thread" : "direct messages"} "${slackMarkdown(update.label).replace(/\n/g, " ")}"${update.threadKey ? `, read in ${update.threadKey}` : ""}`
       : "";
     const link = options.linkOrigin ? ` · [Open in Slack](${slackUpdateUrl(options.linkOrigin, update)})` : "";
     lines.push("", `${id}${intro}${link}`);
@@ -240,6 +235,32 @@ export function formatSlackUpdatesNotice(
 /** How a notice names a conversation: `channel/ts` for a thread, the channel for direct messages. */
 export function slackConversationId(update: Pick<SlackUpdate, "channelId" | "threadTs">): string {
   return update.threadTs ? `${update.channelId}/${update.threadTs}` : update.channelId;
+}
+
+/**
+ * A message's text in Slack's own markup (mrkdwn) as Markdown that shows what
+ * Slack shows, for people and agents alike: code blocks get their fences on
+ * lines of their own (Slack opens and closes one anywhere in a line), links
+ * `<url|text>` become `[text](url)`, mentions `<@U…|Name>` become `@Name`,
+ * channels `#name`, `*bold*` becomes `**bold**`, and `&amp;`, `&lt;` and
+ * `&gt;` are decoded. `_italic_`, `~strike~`, `` `code` `` and `>` quotes mean
+ * the same in both.
+ */
+export function slackMarkdown(text: string): string {
+  const parts = text.split("```");
+  // An unclosed fence is just backticks.
+  if (parts.length % 2 === 0) parts.splice(-2, 2, `${parts.at(-2)}\`\`\`${parts.at(-1)}`);
+  let markdown = "";
+  for (const [index, part] of parts.entries()) {
+    if (index % 2 === 0) {
+      // Text after a code block starts on the line below its closing fence.
+      markdown += inlineSlackMarkdown(index > 0 ? part.replace(/^\n/, "") : part);
+      continue;
+    }
+    if (markdown !== "" && !markdown.endsWith("\n")) markdown += "\n";
+    markdown += `\`\`\`\n${plainSlackText(part.replace(/^\n/, "").replace(/\n$/, ""))}\n\`\`\`\n`;
+  }
+  return markdown.replace(/\n$/, "");
 }
 
 /**
@@ -294,13 +315,13 @@ function threadEntries(update: SlackUpdate): ThreadEntry[] {
   return entries;
 }
 
-/** A message's lines in a notice: who and when, then its text quoted. */
+/** A message's lines in a notice: who and when, then its text as Markdown, quoted. */
 function messageLines(message: SlackMessage, clock: { day: string }, prefix: string, note: string): string[] {
   // A blank line ends the quote above, or Markdown folds the next line into it.
   return [
     "",
     `${prefix}**${message.author || "Someone"}** ${shortTime(message.time, clock)}${note}`,
-    quote(message.text),
+    quote(slackMarkdown(message.text)),
   ];
 }
 
@@ -363,6 +384,63 @@ function body(lines: string[]): string {
   while (kept.length > 0 && (kept.at(-1)!.trim() === "" || TRAILING_METADATA.test(kept.at(-1)!))) kept.pop();
   while (kept.length > 0 && kept[0]!.trim() === "") kept.shift();
   return kept.join("\n");
+}
+
+/**
+ * Slack's MCP tools print every line of a message's text, its reply count and
+ * reactions behind `> ` (since November 2026; earlier they printed it bare), so
+ * a quote in the message itself arrives as `> > `. Lines not all quoted are
+ * the earlier, bare form.
+ */
+function unquote(lines: string[]): string[] {
+  const text = lines.filter((line) => line.trim() !== "");
+  if (text.length === 0 || !text.every((line) => line.startsWith(">"))) return lines;
+  return lines.map((line) => line.replace(/^> ?/, ""));
+}
+
+/** Slack markup outside code blocks as Markdown; inline code keeps its text. */
+function inlineSlackMarkdown(text: string): string {
+  return text
+    .split(/(`[^`\n]+`)/)
+    .map((part, index) => {
+      if (index % 2 === 1) return decodeSlackEntities(part);
+      const linked = part.replace(SLACK_MARKUP, (whole, inside: string) => slackMarkup(inside, true) ?? whole);
+      // Slack's bold is one asterisk on each side, at word edges.
+      return decodeSlackEntities(linked.replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?![\w*])/g, "$1**$2**"));
+    })
+    .join("");
+}
+
+/** A code block's text as Slack shows it: links and mentions as their text, no other markup. */
+function plainSlackText(text: string): string {
+  return decodeSlackEntities(
+    text.replace(SLACK_MARKUP, (whole, inside: string) => slackMarkup(inside, false) ?? whole),
+  );
+}
+
+const SLACK_MARKUP = /<([^<>\s][^<>\n]*)>/g;
+
+/**
+ * One `<…>` of Slack markup: a mention, a channel, a special mention such as
+ * `<!here>`, or a link. Returns null for anything else, which stays as typed.
+ */
+function slackMarkup(inside: string, asMarkdown: boolean): string | null {
+  const bar = inside.indexOf("|");
+  const target = bar < 0 ? inside : inside.slice(0, bar);
+  const label = bar < 0 ? "" : inside.slice(bar + 1);
+  if (target.startsWith("@")) return `@${label || target.slice(1)}`;
+  if (target.startsWith("#")) return `#${label || target.slice(1)}`;
+  // `<!here>`, `<!subteam^S…|@team>`, `<!date^…|fallback text>`.
+  if (target.startsWith("!")) return label || `@${target.slice(1).split("^")[0]}`;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(target)) return null;
+  if (!asMarkdown) return label || target;
+  if (!label || label === target) return `<${target}>`;
+  return `[${label.replace(/[[\]\\]/g, "\\$&")}](${target.replace(/\(/g, "%28").replace(/\)/g, "%29")})`;
+}
+
+/** Slack escapes only these three in message text. */
+function decodeSlackEntities(text: string): string {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
 function withoutUserId(name: string): string {

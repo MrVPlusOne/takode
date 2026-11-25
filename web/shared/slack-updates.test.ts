@@ -7,6 +7,7 @@ import {
   parseSlackPermalinkOrigin,
   parseSlackSearchCursor,
   parseSlackSearchMessages,
+  slackMarkdown,
   slackToolResultText,
 } from "./slack-updates.js";
 
@@ -113,6 +114,46 @@ describe("parseSlackMessages", () => {
   });
 });
 
+describe("parseSlackMessages, as Slack's tools print text since November 2026", () => {
+  // From a live group DM read: every line of a message's text, its reply count
+  // and reactions come behind `> `, and a quote in the message itself as `> > `.
+  it("reads the text without the tool's quoting, keeping the message's own quote", () => {
+    const messages = parseSlackMessages(
+      [
+        "=== Message from Boxuan Li (U0ABEA5JMTK) at 2026-11-19 14:31:30 PST === ",
+        "Message TS: 1795127490.643249",
+        "> <#C0CD5MC939A>",
+        "> Thread: 1 replies (latest: 2026-11-19 15:46:36 PST)",
+        "> Reactions: 6-balloon (1)",
+        "",
+        "--- Reply 14 of 100 ---",
+        "From: Frank Xu (U08BC1BR7D4)",
+        "Time: 2026-11-16 22:50:11 PST",
+        "Message TS: 1794898211.703659",
+        "> > 他来私聊我的",
+        "> 私聊你什么？",
+        ">",
+        "> second paragraph",
+      ].join("\n"),
+    );
+    expect(messages).toEqual([
+      {
+        ts: "1795127490.643249",
+        author: "Boxuan Li",
+        time: "2026-11-19 14:31:30 PST",
+        text: "<#C0CD5MC939A>",
+        replies: 1,
+      },
+      {
+        ts: "1794898211.703659",
+        author: "Frank Xu",
+        time: "2026-11-16 22:50:11 PST",
+        text: "> 他来私聊我的\n私聊你什么？\n\nsecond paragraph",
+      },
+    ]);
+  });
+});
+
 describe("parseSlackSearchMessages", () => {
   // As a detailed `slack_search_public_and_private` search (`in:<#C…> is:thread`)
   // printed it in a live group DM, participant lists shortened.
@@ -185,6 +226,27 @@ describe("parseSlackSearchMessages", () => {
     ]);
   });
 
+  it("reads search text without the tool's quoting", () => {
+    // From the live search behind the Nov 24 report, where each message showed
+    // two quote bars: the tool quotes every line of a result's text.
+    const [message] = parseSlackSearchMessages(
+      [
+        "### Result 1 of 1",
+        "From: Boxuan Li (ID: U0ABEA5JMTK) ",
+        "Time: 2026-11-24 18:02:27 PST",
+        "Message_ts: 1795572147.514069",
+        "Permalink: [link](https://acme.enterprise.slack.com/archives/C0C0AJ3JLL8/p1795572147514069?thread_ts=1794897889.052189&cid=C0C0AJ3JLL8)",
+        "Text: ",
+        "> ```# Printed when the grader left no usable grade.",
+        '> MARKER = "GRADER_UNAVAILABLE"```',
+        "",
+        "---",
+        "",
+      ].join("\n"),
+    );
+    expect(message!.text).toBe('```# Printed when the grader left no usable grade.\nMARKER = "GRADER_UNAVAILABLE"```');
+  });
+
   it("finds the next page's cursor", () => {
     expect(parseSlackSearchCursor("For the next page of results use cursor `Q1VSUkVOVF9QQUdFOjI=`\n")).toBe(
       "Q1VSUkVOVF9QQUdFOjI=",
@@ -238,6 +300,39 @@ describe("compareSlackTs", () => {
     expect(compareSlackTs("1794358314.762619", "1794358314.762618")).toBe(1);
     expect(compareSlackTs("1794358314.762619", "1794358314.762619")).toBe(0);
     expect(compareSlackTs("999999999.9", "1000000000.0")).toBeLessThan(0);
+  });
+});
+
+describe("slackMarkdown", () => {
+  it("puts a code block's fences on lines of their own, keeping its first line", () => {
+    // Slack opens and closes a code block mid-line; as Markdown, text after an
+    // opening fence is its language and a closing fence must start a line.
+    expect(slackMarkdown('```# Printed when no grade.\nMARKER = "X"```')).toBe(
+      ["```", "# Printed when no grade.", 'MARKER = "X"', "```"].join("\n"),
+    );
+    expect(slackMarkdown("see ```a &lt;b&gt; <https://x.io|x>``` then\nmore")).toBe(
+      ["see ", "```", "a <b> x", "```", " then", "more"].join("\n"),
+    );
+    // A fence never closed is just backticks.
+    expect(slackMarkdown("three ``` ticks")).toBe("three ``` ticks");
+  });
+
+  it("turns links, mentions and channels into what Slack shows", () => {
+    expect(
+      slackMarkdown(
+        "<@U09TLUFKAQ4|Qingyu Chen> see <https://ex.com/a_(b)|the doc> in <#C0CD5MC939A|fv-eval> and <#C0CD5MC939A>, <!here>",
+      ),
+    ).toBe("@Qingyu Chen see [the doc](https://ex.com/a_%28b%29) in #fv-eval and #C0CD5MC939A, @here");
+    expect(slackMarkdown("<https://msi.example.com/d> or <https://x.io|https://x.io> to <!subteam^S1|@fv-team>")).toBe(
+      "<https://msi.example.com/d> or <https://x.io> to @fv-team",
+    );
+    // Angle brackets that are not Slack markup stay as typed.
+    expect(slackMarkdown("a <b> c")).toBe("a <b> c");
+  });
+
+  it("makes Slack's bold Markdown bold and decodes Slack's escapes, but not inside code", () => {
+    expect(slackMarkdown("*Pro:* fast, 2*3*4, x &amp; y &gt; z")).toBe("**Pro:** fast, 2*3*4, x & y > z");
+    expect(slackMarkdown("`*a* &gt; 3` and *b*")).toBe("`*a* > 3` and **b**");
   });
 });
 
@@ -396,5 +491,36 @@ describe("formatSlackUpdatesNotice", () => {
         "> line two",
       ].join("\n"),
     );
+  });
+
+  it("shows a message once quoted, with its code block complete", () => {
+    // The Nov 24 report: Slack's tool quoted each line again and the code
+    // block opened mid-line, so the message showed two quote bars, lost its
+    // first line and ended with stray backticks.
+    const [message] = parseSlackSearchMessages(
+      [
+        "### Result 1 of 1",
+        "From: Boxuan Li (ID: U0ABEA5JMTK) ",
+        "Time: 2026-11-24 18:02:27 PST",
+        "Message_ts: 1795572147.514069",
+        "Permalink: [link](https://acme.slack.com/archives/C1/p1795572147514069?thread_ts=1.000001&cid=C1)",
+        "Text: ",
+        "> ```# Printed when no grade.",
+        '> MARKER = "X"```',
+      ].join("\n"),
+    );
+    const notice = formatSlackUpdatesNotice(
+      [{ channelId: "C1", label: "Group DM", messages: [message!], omitted: 0, introduce: false }],
+      { explain: false },
+    );
+    expect(notice.split("\n").slice(-7)).toEqual([
+      "In thread `C1/1.000001`:",
+      "",
+      "↳ **Boxuan Li** 2026-11-24 18:02 PST",
+      "> ```",
+      "> # Printed when no grade.",
+      '> MARKER = "X"',
+      "> ```",
+    ]);
   });
 });

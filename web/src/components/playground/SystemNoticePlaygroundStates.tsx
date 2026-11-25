@@ -239,7 +239,8 @@ export function PlaygroundSlackUpdatesMessage({ repeat }: { repeat: boolean }) {
 /**
  * A watched group DM whose discussion moved into threads: one message started
  * a thread with replies in the same update, another thread's first message is
- * older, and the last reply arrives after midnight.
+ * older, and the last reply arrives after midnight. Some replies use Slack's
+ * own markup: a mention, a link, bold and a code block opened mid-line.
  */
 export function PlaygroundSlackThreadRepliesMessage() {
   const channelId = "C0B7GROUPDM";
@@ -266,10 +267,20 @@ export function PlaygroundSlackThreadRepliesMessage() {
           text: "Why does the grader start its verifier session while the candidate starts? Looks like over-engineering.",
           replies: 3,
         },
-        reply("1795332338.000100", "Ada Park", "23:25:38", "Ben, do you have context?"),
+        reply(
+          "1795332338.000100",
+          "Ada Park",
+          "23:25:38",
+          "<@U0B10RTIZ|Ben Ortiz> do you have context? It came in <https://github.com/acme/grader/pull/12|the prewarm PR>.",
+        ),
         reply("1795332467.000200", "Ben Ortiz", "23:27:47", "Not sure what it is for."),
         reply("1795332504.000300", "Ben Ortiz", "23:28:24", "So the grader starts when the rollout starts?"),
-        reply("1795332806.000400", "Ben Ortiz", "23:33:26", "Probably because pulling the image is slow."),
+        reply(
+          "1795332806.000400",
+          "Ben Ortiz",
+          "23:33:26",
+          "Probably because pulling the image is slow:\n```# Started with the candidate, since pulling the image is slow.\nVERIFIER_PREWARM = True```",
+        ),
         reply("1795332811.000500", "Ben Ortiz", "23:33:31", "We could do without it."),
         reply("1795332918.000600", "Cleo Ito", "23:35:18", "No idea, someone else approved it.", olderThreadTs),
         reply(
@@ -279,7 +290,7 @@ export function PlaygroundSlackThreadRepliesMessage() {
           "I'll ask the author directly, and revert if nothing special.",
         ),
         reply("1795333057.000800", "Cleo Ito", "23:37:37", "Fine by me."),
-        reply("1795333322.000900", "Ben Ortiz", "00:02:02", "Reverted.", parentTs, "2026-11-22"),
+        reply("1795333322.000900", "Ben Ortiz", "00:02:02", "*Reverted.*", parentTs, "2026-11-22"),
       ],
       omitted: 0,
     },
