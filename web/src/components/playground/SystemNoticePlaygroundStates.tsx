@@ -3,6 +3,7 @@ import { MessageBubble } from "../MessageBubble.js";
 import { HOST_EXEC_MESSAGE_SOURCE } from "../../../shared/host-exec.js";
 import { MEMORY_GUARD_MESSAGE_SOURCE } from "../../../shared/memory-guard.js";
 import { STOPPED_BACKGROUND_TASKS_SOURCE } from "../../../shared/injected-event-message.js";
+import { CLAUDE_REQUEST_CUT_SOURCE, claudeRequestCutNotice } from "../../../shared/claude-request-cut.js";
 import { stoppedBackgroundTasksNotice } from "../../../shared/stopped-background-tasks.js";
 import { formatSlackUpdatesNotice, SLACK_UPDATES_SOURCE } from "../../../shared/slack-updates.js";
 
@@ -148,6 +149,18 @@ export function PlaygroundStoppedBackgroundTasksMessage() {
     agentSource: STOPPED_BACKGROUND_TASKS_SOURCE,
   };
   return <MessageBubble message={message} sessionId="playground-stopped-background-tasks" showTimestamp={false} />;
+}
+
+/** A turn continuing at a lower effort after the provider cut a 10-minute request. */
+export function PlaygroundRequestCutMessage() {
+  const message: ChatMessage = {
+    id: "playground-request-cut",
+    role: "user",
+    content: claudeRequestCutNotice("high", "medium"),
+    timestamp: Date.now() - 4_000,
+    agentSource: CLAUDE_REQUEST_CUT_SOURCE,
+  };
+  return <MessageBubble message={message} sessionId="playground-request-cut" showTimestamp={false} />;
 }
 
 /**

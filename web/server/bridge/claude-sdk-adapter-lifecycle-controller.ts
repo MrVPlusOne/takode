@@ -3,6 +3,7 @@ import { serverWorkAdmission } from "../server-work-admission.js";
 import { sessionTag } from "../session-tag.js";
 import { handleClaudeNetworkWaitMessage } from "./claude-network-wait.js";
 import { consumeImageCompactionResult, trackClaudeContextImages } from "./claude-image-compaction.js";
+import { handleClaudeRequestCutMessage } from "./claude-request-cut.js";
 import { browserSessionInitState } from "../session-types.js";
 import type { BackgroundTaskInfo } from "./adapter-interface.js";
 import type { ClaudeModelSwitchOutcome } from "../claude-sdk-adapter.js";
@@ -41,6 +42,10 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   backendProcessStarted?: (sessionId: string) => void;
   /** The process accepted or refused a model switch; `processRunning` says whether it still serves the session. */
   claudeModelSwitched?: (session: any, outcome: ClaudeModelSwitchOutcome, processRunning: () => boolean) => void;
+  /** Continue a turn whose request the provider cut, with a visible notice (see `claude-request-cut.ts`). */
+  continueAfterRequestCut: (session: any, content: string) => void;
+  /** The session's own Claude effort: a live change, else its launch effort; null for Claude's default. */
+  claudeSessionEffort: (session: any) => string | null;
   maxAdapterRelaunchFailures: number;
   adapterFailureResetWindowMs: number;
 }
@@ -174,6 +179,13 @@ export function attachClaudeSdkAdapterLifecycle(
 
     trackClaudeContextImages(session, msg);
     if (consumeImageCompactionResult(session, msg)) return;
+    if (
+      handleClaudeRequestCutMessage(session, msg, {
+        continueTurn: deps.continueAfterRequestCut,
+        sessionEffort: deps.claudeSessionEffort,
+      })
+    )
+      return;
     if (handleClaudeNetworkWaitMessage(session, msg, { broadcastToBrowsers: deps.broadcastToBrowsers })) return;
 
     if (msg.type === "session_init") {

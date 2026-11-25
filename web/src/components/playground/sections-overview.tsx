@@ -31,6 +31,7 @@ import {
   PlaygroundCommandFinishedMessage,
   PlaygroundMemoryGuardMessage,
   PlaygroundStoppedBackgroundTasksMessage,
+  PlaygroundRequestCutMessage,
   PlaygroundLandingQueueMessage,
   PlaygroundSessionRecoveryMessage,
   PlaygroundSkillChangeMessage,
@@ -742,6 +743,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Background tasks stopped with the process">
             <PlaygroundStoppedBackgroundTasksMessage />
+          </Card>
+          <Card label="Request cut off: continuing at a lower effort">
+            <PlaygroundRequestCutMessage />
           </Card>
           <Card label="Slack updates: a session's first notice">
             <PlaygroundSlackUpdatesMessage repeat={false} />

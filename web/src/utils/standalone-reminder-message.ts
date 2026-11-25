@@ -17,6 +17,7 @@ import { HOST_EXEC_MESSAGE_SOURCE, HOST_EXEC_MESSAGE_TAG } from "../../shared/ho
 import { MEMORY_GUARD_MESSAGE_SOURCE, MEMORY_GUARD_MESSAGE_TAG } from "../../shared/memory-guard.js";
 import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
 import { SLACK_UPDATES_SOURCE, SLACK_UPDATES_TAG } from "../../shared/slack-updates.js";
+import { CLAUDE_REQUEST_CUT_SOURCE, parseClaudeRequestCutNotice } from "../../shared/claude-request-cut.js";
 
 export type SystemReminderKind =
   | "resource-lease"
@@ -28,6 +29,7 @@ export type SystemReminderKind =
   | "command-finished"
   | "memory-guard"
   | "stopped-background-tasks"
+  | "request-cut"
   | "slack-updates";
 
 /** Color of a chip: good news, something that needs a look, or neutral system info. */
@@ -70,6 +72,7 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId ||
     sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId ||
     sourceId === STOPPED_BACKGROUND_TASKS_SOURCE.sessionId ||
+    sourceId === CLAUDE_REQUEST_CUT_SOURCE.sessionId ||
     sourceId === SLACK_UPDATES_SOURCE.sessionId
   );
 }
@@ -109,6 +112,7 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
   if (sourceId === STOPPED_BACKGROUND_TASKS_SOURCE.sessionId)
     return buildStoppedBackgroundTasksReminder(message.content);
   if (sourceId === SLACK_UPDATES_SOURCE.sessionId) return buildSlackUpdatesReminder(message.content);
+  if (sourceId === CLAUDE_REQUEST_CUT_SOURCE.sessionId) return buildRequestCutReminder(message.content);
   return null;
 }
 
@@ -244,6 +248,20 @@ function buildMemoryGuardReminder(content: string): SystemReminderViewModel {
  * The notice lists each sub-agent to resume as "- `<id>`: <description>" and
  * each stopped command as "- <description>"; the chip counts them.
  */
+/** The provider cut a 10-minute request; the chip names the effort change the turn continues with. */
+function buildRequestCutReminder(content: string): SystemReminderViewModel {
+  const effort = parseClaudeRequestCutNotice(content);
+  return {
+    kind: "request-cut",
+    title: "Request cut off",
+    summary: effort ? `effort ${effort.from} → ${effort.to} for this turn` : "continuing at lower effort",
+    badge: "effort",
+    tone: "attention",
+    detailFacts: [],
+    detailContent: content,
+  };
+}
+
 function buildStoppedBackgroundTasksReminder(content: string): SystemReminderViewModel {
   const lines = content.split(/\r?\n/).filter((line) => line.startsWith("- "));
   const agents = lines.filter((line) => line.startsWith("- `")).length;

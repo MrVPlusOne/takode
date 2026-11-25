@@ -5,6 +5,7 @@ import type { ChatMessage } from "../types.js";
 import { useStore } from "../store.js";
 import { STOPPED_BACKGROUND_TASKS_SOURCE } from "../../shared/injected-event-message.js";
 import { stoppedBackgroundTasksNotice } from "../../shared/stopped-background-tasks.js";
+import { CLAUDE_REQUEST_CUT_SOURCE, claudeRequestCutNotice } from "../../shared/claude-request-cut.js";
 import { formatSlackUpdatesNotice, SLACK_UPDATES_SOURCE } from "../../shared/slack-updates.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -293,6 +294,24 @@ describe("MessageBubble standalone system reminder messages", () => {
 
     fireEvent.click(chip);
     expect(screen.getByText(/Formalize C batch c-18/)).toBeTruthy();
+  });
+
+  it("renders a request-cut notice as a chip naming the lowered effort", () => {
+    // Copilot cut a 10-minute request and Takode continued the turn at a lower
+    // effort; the chip says so in one line, the full notice stays in the detail.
+    const msg = makeMessage({
+      content: claudeRequestCutNotice("high", "medium"),
+      agentSource: CLAUDE_REQUEST_CUT_SOURCE,
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("request-cut");
+    expect(chip.textContent).toContain("Request cut off");
+    expect(chip.textContent).toContain("effort high → medium for this turn");
+    fireEvent.click(chip);
+    expect(screen.getByText(/provider cut it off/)).toBeTruthy();
   });
 
   it("renders landing-queue messages as collapsed chips with the outcome as a badge", () => {

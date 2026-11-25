@@ -274,6 +274,8 @@ import {
   trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
 import { stopClaudeNetworkWait } from "./bridge/claude-network-wait.js";
+import { restoreClaudeEffortAfterTurn } from "./bridge/claude-request-cut.js";
+import { CLAUDE_REQUEST_CUT_SOURCE } from "../shared/claude-request-cut.js";
 import { isBoardLeaderStopped, preferRowsOnRunningLeaders } from "./bridge/board-stale-rows.js";
 import {
   computeDiffStatsAsync as computeDiffStatsAsyncController,
@@ -471,6 +473,12 @@ export function maybeBroadcastGlobalSessionActivityUpdate(
       ...getSessionActivitySnapshotController(session),
     },
   });
+}
+
+/** A Claude session's own effort: set live in this run, else the one it launched with; null for Claude's default. */
+function claudeSessionEffort(host: any, session: Session): string | null {
+  if (Object.hasOwn(session.state, "claude_reasoning_effort")) return session.state.claude_reasoning_effort ?? null;
+  return readLauncherSession(host, session.id)?.claudeReasoningEffort ?? null;
 }
 
 function requestCliRelaunchIfUnpaused(host: any): ((sessionId: string) => void) | undefined {
@@ -1151,6 +1159,13 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
         restartWhenIdle: (sessionId: string, reason: string, stillNeeded: () => boolean) =>
           host.idleRestarts?.restartWhenIdle(sessionId, { reason, stillNeeded }),
       }),
+    claudeSessionEffort: (targetSession: unknown) => claudeSessionEffort(host, targetSession as Session),
+    continueAfterRequestCut: (targetSession: unknown, content: string) => {
+      const session = targetSession as Session;
+      // The cut request's retry status and network wait end with it.
+      stopClaudeNetworkWait(session, { broadcastToBrowsers: (target, msg) => host.broadcastToBrowsers(target, msg) });
+      host.injectUserMessage(session.id, content, CLAUDE_REQUEST_CUT_SOURCE);
+    },
     isCurrentSession: (sessionId: string, session: unknown) => host.sessions.get(sessionId) === session,
     maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
     adapterFailureResetWindowMs: ADAPTER_FAILURE_RESET_WINDOW_MS,
@@ -1935,6 +1950,7 @@ export function getGenerationLifecycleDeps(host: any) {
       // A turn that ends for any reason (interrupt, disconnect) no longer waits to resume.
       if (session.backendType === "claude-sdk") {
         stopClaudeNetworkWait(session, { broadcastToBrowsers: (target, msg) => host.broadcastToBrowsers(target, msg) });
+        restoreClaudeEffortAfterTurn(session, claudeSessionEffort(host, session));
       }
       // Recompute message history bytes at turn boundaries (when generation ends)
       // so the UI can show payload size without computing on every push.

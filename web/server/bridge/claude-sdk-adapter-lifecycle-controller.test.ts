@@ -89,6 +89,8 @@ function makeDeps(session: any, launcherInfo: any = null) {
     invalidateSessionNavigation: vi.fn(),
     maxAdapterRelaunchFailures: 3,
     adapterFailureResetWindowMs: 10_000,
+    continueAfterRequestCut: vi.fn(),
+    claudeSessionEffort: vi.fn(() => null),
   };
 }
 
