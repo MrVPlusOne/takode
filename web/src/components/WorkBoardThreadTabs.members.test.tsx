@@ -5,7 +5,7 @@
  * its quests, which open the question where it was asked.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 const needsInput = vi.hoisted(() => ({ entries: [] as unknown[] }));
 vi.mock("../hooks/useGlobalNeedsInputEntries.js", () => ({
   useGlobalNeedsInputEntries: () => ({ entries: needsInput.entries, mutedEntries: [], sdkSessions: [] }),
@@ -18,6 +18,11 @@ vi.mock("../utils/leader-topics.js", async (importOriginal) => ({
   useLeaderThreads: () => threads.list,
 }));
 import { useStore } from "../store.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import {
+  createLeaderThreadTabsProjectionEnvelope,
+  createLeaderThreadTabsProjectionValue,
+} from "../test-fixtures/leader-thread-tabs-projection.js";
 import { ThreadTabRail, useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 afterEach(() => {
@@ -58,12 +63,17 @@ function question(sessionId: string, sessionNum: number, questId: string, timest
   };
 }
 
-function renderRail(tabs: PrimaryThreadChip[], mainState?: PrimaryThreadChip) {
+function renderRail(
+  tabs: PrimaryThreadChip[],
+  mainState?: PrimaryThreadChip,
+  threadStatuses?: Record<string, LeaderThreadStatus>,
+) {
   const onSelectThread = vi.fn();
   render(
     <ThreadTabRail
       tabs={tabs}
       mainState={mainState}
+      threadStatuses={threadStatuses}
       sessionId="leader"
       currentThreadKey="main"
       onSelectThread={onSelectThread}
@@ -164,6 +174,73 @@ describe("ThreadTabRail members", () => {
       ]);
     } finally {
       useStore.setState({ sessionStatus: new Map(), activeTurnRoutes: new Map() } as never);
+    }
+  });
+
+  it("counts a thread the leader marked Waiting as In progress, even when its quest is done", () => {
+    // Jiayi (Nov 25): a done quest's thread that waits on its side quests sat under Idle. A thread
+    // is In progress while the leader's latest status for it is Waiting; Ready or no status is Idle.
+    const status = (threadKey: string, kind: "waiting" | "ready"): LeaderThreadStatus => ({
+      kind,
+      label: kind === "waiting" ? "Thread Waiting" : "Thread Ready",
+      threadKey,
+      summary: "side quests running",
+      messageId: `m-${threadKey}`,
+      timestamp: 1,
+      updatedAt: 1,
+    });
+    // The board runs no quest: only statuses can make these threads In progress.
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "leader",
+        value: { ...createLeaderThreadTabsProjectionValue(), runningQuestIds: [] },
+      }),
+    );
+    threads.list = [
+      {
+        id: "aa11",
+        key: "topic:aa11",
+        name: "Waiting thread",
+        leaderId: "leader",
+        createdAt: 1,
+        activityAt: 9,
+        status: status("topic:aa11", "waiting"),
+      },
+      {
+        id: "cc33",
+        key: "topic:cc33",
+        name: "Ready thread",
+        leaderId: "leader",
+        createdAt: 1,
+        activityAt: 5,
+        status: status("topic:cc33", "ready"),
+      },
+    ];
+    try {
+      renderRail(
+        [chip("q-1", { completed: true }), chip("q-2", { completed: true }), chip("q-3", { completed: true })],
+        undefined,
+        { "q-1": status("q-1", "waiting"), "q-2": status("q-2", "ready") },
+      );
+      const running = () =>
+        Object.fromEntries(
+          useLeaderThreadMembers.getState().byLeader.leader!.map((member) => [member.threadKey, member.running]),
+        );
+      expect(running()).toEqual({
+        "q-1": true,
+        "q-2": false,
+        "q-3": false,
+        "topic:aa11": true,
+        "topic:cc33": false,
+      });
+      // A status sent live replaces the loaded one: the leader marks q-1 Ready and q-3 Waiting.
+      act(() => {
+        useStore.getState().setThreadStatus("leader", "q-1", status("q-1", "ready"));
+        useStore.getState().setThreadStatus("leader", "q-3", status("q-3", "waiting"));
+      });
+      expect(running()).toMatchObject({ "q-1": false, "q-3": true });
+    } finally {
+      useStore.setState({ threadStatuses: new Map() } as never);
     }
   });
 

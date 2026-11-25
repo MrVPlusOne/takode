@@ -11,7 +11,12 @@ import { useLeadersThreads } from "../../utils/leader-topics.js";
 import { useCancelledQuestIds } from "../../utils/cancelled-quests.js";
 import { timeAgo } from "../../utils/quest-helpers.js";
 import { useLeadersHomeLines } from "../home/HomeExtras.js";
-import { resolveLeaderThreadTabsProjection } from "../../utils/leader-thread-tabs-resolver.js";
+import {
+  currentLeaderThreadStatus,
+  isWaitingThreadStatus,
+  resolveLeaderThreadTabsProjection,
+} from "../../utils/leader-thread-tabs-resolver.js";
+import { threadStatusKey, type LeaderThreadStatus } from "../../../shared/thread-status-marker.js";
 import type { NextAttentionItem } from "../../utils/next-attention.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
 import { sessionInteractionAt } from "../../utils/recent-sessions.js";
@@ -91,6 +96,10 @@ export interface LeaderThreadsInput {
   threads: readonly ThreadSummary[];
   /** The thread the leader is writing in now, if any: it counts as running there. */
   writingThreadKey?: string | null;
+  /** The leader's statuses for its quest threads (the tab projection's): a Waiting one counts as running. */
+  threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
+  /** Statuses sent live since the lists loaded (null: cleared), which take their place. */
+  liveThreadStatuses?: ReadonlyMap<string, LeaderThreadStatus | null>;
   /** When the user last dealt with each of its threads, by thread key (the tab projection's). */
   userInteractionAt?: Readonly<Record<string, number>>;
 }
@@ -99,8 +108,8 @@ export interface LeaderThreadsInput {
  * Every leader's threads as rows, the one the user last dealt with first; threads with a question
  * for the user stay on top, in the same order among themselves. Nothing else moves a row: an unread
  * result or running work shows only in its dot and counts. A thread's counts come from the attention
- * list (questions amber, unread results blue, a running quest or the thread the leader is answering
- * in green); a question a leader's worker asks about one of its quests counts in that quest. Main's
+ * list (questions amber, unread results blue), and work going on (a running quest, a thread the
+ * leader marked Waiting, or the thread it is answering in) is green; a question a leader's worker asks about one of its quests counts in that quest. Main's
  * questions and results are read in the leader log, which is a row while they wait, as in the
  * status row.
  */
@@ -114,7 +123,16 @@ export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readon
 
 /** One leader's threads as rows, each in one status group, as its status row has them. */
 function leaderThreadRows(
-  { node, tabs, runningQuestIds, threads, writingThreadKey, userInteractionAt = {} }: LeaderThreadsInput,
+  {
+    node,
+    tabs,
+    runningQuestIds,
+    threads,
+    writingThreadKey,
+    userInteractionAt = {},
+    threadStatuses,
+    liveThreadStatuses,
+  }: LeaderThreadsInput,
   queue: readonly NextAttentionItem[],
 ): ThreadRow[] {
   const rows: ThreadRow[] = [];
@@ -140,7 +158,11 @@ function leaderThreadRows(
   };
   for (const tab of tabs) {
     const threadKey = normalizeThreadKey(tab.threadKey);
-    const running = !!tab.questId && runningQuestIds.includes(normalizeThreadKey(tab.questId));
+    const running =
+      (!!tab.questId && runningQuestIds.includes(normalizeThreadKey(tab.questId))) ||
+      isWaitingThreadStatus(
+        currentLeaderThreadStatus(liveThreadStatuses, threadStatuses?.[threadStatusKey(threadKey)], threadKey),
+      );
     rows.push(
       row({
         threadKey,
@@ -162,7 +184,10 @@ function leaderThreadRows(
         questId: null,
         title: thread.name,
         label: "Thread",
-        counts: counts(threadKey),
+        counts: counts(
+          threadKey,
+          isWaitingThreadStatus(currentLeaderThreadStatus(liveThreadStatuses, thread.status, threadKey)),
+        ),
         // Starting a thread is dealing with it: it is on top from the start.
         at: Math.max(userInteractionAt[threadKey] ?? 0, thread.startedBy ? 0 : thread.createdAt),
         activityAt: thread.interactionAt ?? thread.activityAt,
@@ -304,6 +329,9 @@ export function useThreadsModeData(nodes: readonly RecentSessionNode[], active: 
       ),
     ),
   );
+  const liveStatuses = useStore(
+    useShallow((state) => leaderNodes.map((node) => state.threadStatuses?.get(node.leader.id))),
+  );
   const projections = useStore((state) => state.syncedProjectionValues);
   const projectionKeys = useStore((state) => state.syncedProjectionKeys);
   const values = useMemo(
@@ -342,12 +370,14 @@ export function useThreadsModeData(nodes: readonly RecentSessionNode[], active: 
         runningQuestIds: (value?.runningQuestIds ?? []).map(normalizeThreadKey),
         threads: threads[node.leader.id] ?? [],
         writingThreadKey: writing[index] ?? null,
+        ...(value?.threadStatuses ? { threadStatuses: value.threadStatuses } : {}),
+        ...(liveStatuses[index] ? { liveThreadStatuses: liveStatuses[index] } : {}),
         ...(value?.userInteractionAt ? { userInteractionAt: value.userInteractionAt } : {}),
       };
     });
     const listed = new Set(leaderNodes.map((node) => node.leader.id));
     return { leaders, others: nodes.filter((node) => !listed.has(node.leader.id)) };
-  }, [nodes, leaderNodes, threads, values, cancelled, writing]);
+  }, [nodes, leaderNodes, threads, values, cancelled, writing, liveStatuses]);
 }
 
 /** The thread on screen, as the route says. */

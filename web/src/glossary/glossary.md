@@ -41,8 +41,8 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 
 - **Needs you**: a thread with a question waiting for your answer, shown in amber.
 - **Unread**: a thread with an answer or result you haven't read, shown in blue.
-- **In progress**: threads where work is running right now, such as a worker on its quest, shown in green.
-- **Idle**: threads where nothing is running, finished quests included, shown in grey.
+- **In progress**: threads where work is running right now, such as a worker on its quest, or that the leader marked Waiting (for example on side quests), shown in green.
+- **Idle**: threads where nothing is running or waited on, finished quests included, shown in grey.
 - **Status row**: the row under the top bar for the leader on screen: Home, Idle, In progress, Unread and Needs you. Tap a group to see its threads.
 - **Attention list**: the bell in the top bar collects every leader's questions and unread results; Next steps through them.
 - **Notify Me**: a quest's menu option to be told when it finishes.

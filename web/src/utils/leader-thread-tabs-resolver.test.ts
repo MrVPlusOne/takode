@@ -57,4 +57,37 @@ describe("isLeaderThreadRunning", () => {
     useStore.setState({ sessionStatus: new Map([[LEADER, "idle"]]) } as never);
     expect(running("topic:aa11bb22")).toBe(false);
   });
+
+  it("counts a thread the leader marked Waiting as running, from the projection or a live update", () => {
+    // Jiayi (Nov 25): a done quest's thread waiting on side quests is In progress, in the side
+    // column's dot too.
+    const status = (threadKey: string, kind: "waiting" | "ready") => ({
+      kind,
+      label: kind === "waiting" ? ("Thread Waiting" as const) : ("Thread Ready" as const),
+      threadKey,
+      summary: "waiting for side quests",
+      messageId: `m-${threadKey}`,
+      timestamp: 1,
+      updatedAt: 1,
+    });
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: LEADER,
+        value: {
+          ...createLeaderThreadTabsProjectionValue(),
+          runningQuestIds: [],
+          threadStatuses: { "q-7": status("q-7", "waiting"), "q-8": status("q-8", "ready") },
+        },
+      }),
+    );
+    const running = (threadKey: string) => isLeaderThreadRunning(useStore.getState(), LEADER, threadKey);
+    expect(running("q-7")).toBe(true);
+    expect(running("q-8")).toBe(false);
+    // A thread that is not a quest's gets its status live, with its window or as it changes.
+    useStore.getState().setThreadStatus(LEADER, "topic:aa11bb22", status("topic:aa11bb22", "waiting"));
+    expect(running("topic:aa11bb22")).toBe(true);
+    // A live Ready replaces the projection's Waiting.
+    useStore.getState().setThreadStatus(LEADER, "q-7", status("q-7", "ready"));
+    expect(running("q-7")).toBe(false);
+  });
 });

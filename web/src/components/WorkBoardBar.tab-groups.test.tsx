@@ -469,8 +469,9 @@ describe("WorkBoardBar tab groups", () => {
   });
 
   it("uses the normal foreground for a finished quest with an authoritative Thread Waiting", () => {
-    // Work continues in that thread, so its title does not read as done, and the waiting
-    // status is not an attention signal of its own.
+    // Work continues in that thread, so its title does not read as done, it is In progress (Jiayi,
+    // Nov 25: a done quest's thread waiting on side quests is not idle), and the waiting status is
+    // not an attention signal of its own.
     resetStore({
       sessions: new Map([
         ["s1", { leaderThreadStatuses: { "q-4": waitingThreadStatus("q-4") } } as unknown as SessionState],
@@ -485,7 +486,7 @@ describe("WorkBoardBar tab groups", () => {
     const groups = screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group);
     expect(groups).not.toContain("needs-input");
     expect(groups).not.toContain("new-results");
-    const meta = within(row(openGroup("idle"), "q-4")).getByTestId("thread-tab-list-row-meta");
+    const meta = within(row(openGroup("in-progress"), "q-4")).getByTestId("thread-tab-list-row-meta");
     expect(meta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
   });
 

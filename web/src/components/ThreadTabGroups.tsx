@@ -25,6 +25,7 @@ import type { SessionNotification } from "../types.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { isOtherColumnClick } from "../utils/side-column.js";
+import { isWaitingThreadStatus } from "../utils/leader-thread-tabs-resolver.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { BellIcon } from "./AttentionKind.js";
 import { NewThreadIcon } from "./library/library-icons.js";
@@ -139,7 +140,7 @@ export function readOnScreen(tab: PrimaryThreadChip, currentKey: string): Primar
 /**
  * A thread that is not a quest's (the user started it, or the leader opened it), as a group member:
  * an open question puts it under Needs you, an unread answer under Unread; it is In progress
- * only while the leader is writing in it (`writing`), else Idle.
+ * while the leader is writing in it (`writing`) or its status is Waiting, else Idle.
  */
 export function plainThreadChip(
   thread: ThreadSummary,
@@ -159,7 +160,7 @@ export function plainThreadChip(
     mutedNeedsInput: false,
     blueNudge: unread,
     completed: !!thread.settledAt && !questions && !unread,
-    running: writing,
+    running: writing || isWaitingThreadStatus(thread.status),
     stateLabel: thread.topic ? `Thread · ${thread.topic.name}` : "Thread",
     groupChangedAt: thread.interactionAt ?? thread.activityAt,
     canClose: false,

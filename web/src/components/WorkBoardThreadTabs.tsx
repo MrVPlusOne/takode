@@ -9,7 +9,11 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { useStore } from "../store.js";
-import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
+import {
+  currentLeaderThreadStatus,
+  isWaitingThreadStatus,
+  resolveLeaderThreadTabsProjection,
+} from "../utils/leader-thread-tabs-resolver.js";
 import type { QuestmasterTask } from "../types.js";
 import {
   canonicalThreadStatusKey,
@@ -219,7 +223,14 @@ export function useLeaderThreadChips({
     const running = runningKey === null ? null : new Set(runningKey ? runningKey.split(",") : []);
     const members: PrimaryThreadChip[] = displayedTabs.map((raw) => {
       const key = normalizeThreadKey(raw.questId ?? raw.threadKey);
-      const tab = running ? { ...raw, running: running.has(key) || writingKey === key } : raw;
+      const waiting = isWaitingThreadStatus(
+        currentLeaderThreadStatus(liveStatuses, threadStatuses?.[threadStatusKey(key)], key),
+      );
+      const tab = running
+        ? { ...raw, running: running.has(key) || writingKey === key || waiting }
+        : waiting
+          ? { ...raw, running: true }
+          : raw;
       const question = questionOf.get(key);
       if (!question || tab.needsInput) return tab;
       questionOf.delete(question.questId);
@@ -227,8 +238,7 @@ export function useLeaderThreadChips({
     });
     for (const thread of plainThreads) {
       if (thread.empty) continue;
-      const key = canonicalThreadStatusKey(thread.key);
-      const status = liveStatuses?.has(key) ? (liveStatuses.get(key) ?? undefined) : thread.status;
+      const status = currentLeaderThreadStatus(liveStatuses, thread.status, thread.key);
       members.push(plainThreadChip({ ...thread, status }, notifications, writingKey === thread.key));
     }
     // A question or answer still in Main (from before Home) is read in the leader log.
@@ -257,7 +267,17 @@ export function useLeaderThreadChips({
       });
     }
     return members;
-  }, [displayedTabs, plainThreads, notifications, liveStatuses, mainState, questions, runningKey, writingKey]);
+  }, [
+    displayedTabs,
+    plainThreads,
+    notifications,
+    liveStatuses,
+    threadStatuses,
+    mainState,
+    questions,
+    runningKey,
+    writingKey,
+  ]);
   return threads;
 }
 

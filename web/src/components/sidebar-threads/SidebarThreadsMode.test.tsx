@@ -160,6 +160,52 @@ describe("threadRows", () => {
   });
 });
 
+describe("threadRows with thread statuses", () => {
+  // Jiayi (Nov 25): a thread the leader marked Waiting is In progress though its quest is done (it
+  // may wait on side quests whose results come back to it); Ready or no status leaves it Idle. A
+  // status sent live since the lists loaded takes the loaded one's place.
+  it("counts a Waiting thread as running, quest or not, and lets a live status replace it", () => {
+    const status = (threadKey: string, kind: "waiting" | "ready") => ({
+      kind,
+      label: kind === "waiting" ? ("Thread Waiting" as const) : ("Thread Ready" as const),
+      threadKey,
+      summary: "waiting for side quests",
+      messageId: `m-${threadKey}`,
+      timestamp: 1,
+      updatedAt: 1,
+    });
+    const input: LeaderThreadsInput = {
+      node: MSI,
+      tabs: [tab("q-3", { completed: true }), tab("q-5", { completed: true })],
+      runningQuestIds: [],
+      threads: [
+        {
+          id: "cc",
+          key: "topic:cc",
+          name: "Waiting on a side quest",
+          leaderId: "msi",
+          createdAt: 1,
+          activityAt: 1,
+          status: status("topic:cc", "waiting"),
+        },
+      ],
+      threadStatuses: { "q-3": status("q-3", "waiting"), "q-5": status("q-5", "ready") },
+    };
+    const groups = (leader: LeaderThreadsInput) =>
+      Object.fromEntries(threadRows([leader], []).map((row) => [row.threadKey, row.group]));
+    expect(groups(input)).toEqual({ "q-3": "in-progress", "q-5": "idle", "topic:cc": "in-progress" });
+    const live = new Map([
+      ["q-3", status("q-3", "ready")],
+      ["topic:cc", null],
+    ]);
+    expect(groups({ ...input, liveThreadStatuses: live })).toEqual({
+      "q-3": "idle",
+      "q-5": "idle",
+      "topic:cc": "idle",
+    });
+  });
+});
+
 describe("leaderCounts", () => {
   it("counts threads, as the leader's status row does, not answers or questions", () => {
     // Jiayi (Nov 3): a leader's row said 9 unread while its status row's Unread said 3 threads.

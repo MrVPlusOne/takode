@@ -13,7 +13,11 @@ import {
 } from "../../shared/leader-open-thread-tabs.js";
 import type { AppState } from "../store-types.js";
 import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
-import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import {
+  canonicalThreadStatusKey,
+  threadStatusKey,
+  type LeaderThreadStatus,
+} from "../../shared/thread-status-marker.js";
 import { resolveSessionNavigation, type SessionNavigationResolverSource } from "./session-navigation-resolver.js";
 import { normalizeThreadKey } from "./thread-projection.js";
 
@@ -117,16 +121,47 @@ export function resolveWorkBoardIsOrchestrator(
 
 /**
  * Whether one of a leader's threads is running, by the rule the status groups use: a quest whose
- * work is running (the board's `runningQuestIds`), or the thread the leader is writing in now.
+ * work is running (the board's `runningQuestIds`), a thread the leader marked Waiting, or the
+ * thread the leader is writing in now.
  */
 export function isLeaderThreadRunning(
-  state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys" | "sessionStatus" | "activeTurnRoutes">,
+  state: Pick<
+    AppState,
+    "syncedProjectionValues" | "syncedProjectionKeys" | "sessionStatus" | "activeTurnRoutes" | "threadStatuses"
+  >,
   leaderId: string,
   threadKey: string,
 ): boolean {
   const key = normalizeThreadKey(threadKey);
   const writing = state.sessionStatus.get(leaderId) === "running" ? state.activeTurnRoutes.get(leaderId) : null;
   if (writing?.threadKey && normalizeThreadKey(writing.threadKey) === key) return true;
-  const running = resolveLeaderThreadTabsProjection(state, leaderId).value?.runningQuestIds ?? [];
-  return running.some((questId) => normalizeThreadKey(questId) === key);
+  const projection = resolveLeaderThreadTabsProjection(state, leaderId).value;
+  const status = currentLeaderThreadStatus(
+    state.threadStatuses.get(leaderId),
+    projection?.threadStatuses[threadStatusKey(key)],
+    key,
+  );
+  if (isWaitingThreadStatus(status)) return true;
+  return (projection?.runningQuestIds ?? []).some((questId) => normalizeThreadKey(questId) === key);
+}
+
+/**
+ * A thread the leader marked Waiting counts as work going on, even when its quest is done: it may
+ * wait on side quests whose results come back to it (Jiayi, Nov 25). Ready, or no status, does not.
+ */
+export function isWaitingThreadStatus(status: LeaderThreadStatus | null | undefined): boolean {
+  return status?.kind === "waiting";
+}
+
+/**
+ * A leader's current status for one of its threads: the latest one sent live (`leader_thread_status`,
+ * where null means it was cleared), else the one the thread list or projection carried.
+ */
+export function currentLeaderThreadStatus(
+  live: ReadonlyMap<string, LeaderThreadStatus | null> | undefined,
+  loaded: LeaderThreadStatus | undefined,
+  threadKey: string,
+): LeaderThreadStatus | undefined {
+  const key = canonicalThreadStatusKey(threadKey);
+  return live?.has(key) ? (live.get(key) ?? undefined) : loaded;
 }
