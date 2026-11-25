@@ -9,7 +9,10 @@ import { createCodexHistoryIncorporation } from "./codex-history-incorporation.j
 
 export const CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS = 2;
 
-export type RecoverableCodexProviderFailureFamily = "model_backend_stream_error" | "copilot_auth_refresh_invalidated";
+export type RecoverableCodexProviderFailureFamily =
+  | "model_backend_stream_error"
+  | "copilot_auth_refresh_invalidated"
+  | "codex_service_tier_rejected";
 
 export type CodexProviderResultRecoveryDecision =
   | { kind: "none" }
@@ -28,6 +31,7 @@ export type CodexProviderResultRecoveryDecision =
     };
 
 export interface CodexProviderResultRecoverySessionLike {
+  state?: { codex_service_tier?: string | null };
   messageHistory: BrowserIncomingMessage[];
   pendingCodexTurns?: CodexOutboundTurn[];
   _frozenCount?: number;
@@ -38,6 +42,20 @@ export function decideCodexProviderResultRecovery(
   msg: CLIResultMessage,
   completedTurn: CodexOutboundTurn | null,
 ): CodexProviderResultRecoveryDecision {
+  const coOwners = getProviderTurnCoOwners(
+    session.pendingCodexTurns ?? (completedTurn ? [completedTurn] : []),
+    completedTurn,
+  );
+  const retryTurn = coOwners.length > 0 && coOwners.every((turn) => isCodexTurnReplayProvablySafe(session, turn));
+  // A provider that refuses the session's Fast tier fails every turn the same way. Turning
+  // the tier off fixes it, so the turn is re-run once; with the tier off this can't recur.
+  if (session.state?.codex_service_tier && isCodexServiceTierRejectedResult(msg)) {
+    const family = "codex_service_tier_rejected";
+    if (coOwners.some((turn) => turn.providerRecoveryFamily === family)) {
+      return { kind: "exhausted", family, attempts: 1 };
+    }
+    return { kind: "recover", family, retryTurn, attempt: 1, maxAttempts: 1 };
+  }
   const classified = classifyCodexResultError(msg);
   if (!classified) return { kind: "none" };
   if (classified.family === "model_not_supported") {
@@ -47,10 +65,6 @@ export function decideCodexProviderResultRecovery(
     return { kind: "none" };
   }
 
-  const coOwners = getProviderTurnCoOwners(
-    session.pendingCodexTurns ?? (completedTurn ? [completedTurn] : []),
-    completedTurn,
-  );
   const priorAttempts = Math.max(0, ...coOwners.map((turn) => turn.providerRecoveryAttempts ?? 0));
   const persistentNetworkOutage = classified.family === "model_backend_stream_error";
   if (persistentNetworkOutage && hasNonRetryableProviderFailureEvidence(msg)) {
@@ -66,10 +80,19 @@ export function decideCodexProviderResultRecovery(
   return {
     kind: "recover",
     family: classified.family,
-    retryTurn: coOwners.length > 0 && coOwners.every((turn) => isCodexTurnReplayProvablySafe(session, turn)),
+    retryTurn,
     attempt: Math.min(Number.MAX_SAFE_INTEGER, priorAttempts + 1),
     maxAttempts: persistentNetworkOutage ? null : CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS,
   };
+}
+
+/**
+ * True when the provider refused the request's `service_tier` (Fast), as GitHub Copilot does:
+ * `{"error":{"message":"service_tier is not supported","param":"service_tier",...}}`.
+ */
+export function isCodexServiceTierRejectedResult(msg: CLIResultMessage): boolean {
+  if (!msg.is_error || typeof msg.result !== "string") return false;
+  return /service_tier/i.test(msg.result) && /not supported|unsupported/i.test(msg.result);
 }
 
 export function blocksAutomaticCodexTerminalHistoryContinuation(msg: CLIResultMessage): boolean {
@@ -195,6 +218,10 @@ export function prepareCodexTurnForProviderRecovery(
   turn.turnId = null;
   turn.disconnectedAt = null;
   turn.resumeConfirmedAt = null;
+  if (family === "codex_service_tier_rejected") {
+    turn.lastError = "Takode is re-running this turn at Standard speed because the provider rejected Fast.";
+    return;
+  }
   const attemptLabel =
     family === "model_backend_stream_error"
       ? `attempt ${attempt}`

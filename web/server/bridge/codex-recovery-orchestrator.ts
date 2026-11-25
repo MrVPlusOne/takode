@@ -207,6 +207,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
     | "isOrchestrator"
     | "codex_result_error_auto_pause"
     | "codex_provider_retry"
+    | "codex_service_tier"
     | "codex_turn_recovery"
     | "leaderThreadStatuses"
   >;
@@ -492,7 +493,12 @@ export function completeCodexTurnsForResult(
     providerRecovery.kind === "exhausted" ||
     blocksAutomaticCodexTerminalHistoryContinuation(msg);
   const outcome = completeCodexTurnsForResultState(session, msg, updatedAt);
-  if (providerRecovery.kind === "recover" && !providerRecovery.retryTurn) {
+  // A rejected Fast tier is fixed by turning it off, not by a relaunch that continues the turn.
+  if (
+    providerRecovery.kind === "recover" &&
+    !providerRecovery.retryTurn &&
+    providerRecovery.family !== "codex_service_tier_rejected"
+  ) {
     const recordedRecoveryTurns = completedTurns.filter(
       (turn) =>
         turn.status === "completed" &&

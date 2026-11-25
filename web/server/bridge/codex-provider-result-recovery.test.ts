@@ -329,3 +329,61 @@ describe("Codex provider result recovery", () => {
     });
   });
 });
+
+describe("Codex provider rejecting the Fast service tier", () => {
+  // The exact text Codex reports when GitHub Copilot refuses `service_tier`
+  // (captured from codex app-server 0.162.1 turn/completed against Copilot).
+  const copilotRejection =
+    '{"error":{"message":"service_tier is not supported","code":"unsupported_value","param":"service_tier","type":"invalid_request_error"}}\n';
+
+  it("re-runs the turn once when the session has Fast on and the provider refuses it", () => {
+    const failed = turn();
+    const decision = decideCodexProviderResultRecovery(
+      { state: { codex_service_tier: "priority" }, messageHistory: [userMessage], pendingCodexTurns: [failed] },
+      result({ result: copilotRejection }),
+      failed,
+    );
+
+    expect(decision).toEqual({
+      kind: "recover",
+      family: "codex_service_tier_rejected",
+      retryTurn: true,
+      attempt: 1,
+      maxAttempts: 1,
+    });
+  });
+
+  it("leaves the failure alone when the session has no service tier", () => {
+    // Without Takode's Fast setting, turning it off can't help (the tier came from elsewhere).
+    const failed = turn();
+    const decision = decideCodexProviderResultRecovery(
+      { state: { codex_service_tier: null }, messageHistory: [userMessage], pendingCodexTurns: [failed] },
+      result({ result: copilotRejection }),
+      failed,
+    );
+
+    expect(decision).toEqual({ kind: "none" });
+  });
+
+  it("stops after one re-run so a repeated rejection can never loop", () => {
+    const failed = turn({ providerRecoveryFamily: "codex_service_tier_rejected", providerRecoveryAttempts: 1 });
+    const decision = decideCodexProviderResultRecovery(
+      { state: { codex_service_tier: "priority" }, messageHistory: [userMessage], pendingCodexTurns: [failed] },
+      result({ result: copilotRejection }),
+      failed,
+    );
+
+    expect(decision).toEqual({ kind: "exhausted", family: "codex_service_tier_rejected", attempts: 1 });
+  });
+
+  it("does not treat other provider errors as a Fast rejection", () => {
+    const failed = turn();
+    const decision = decideCodexProviderResultRecovery(
+      { state: { codex_service_tier: "priority" }, messageHistory: [userMessage], pendingCodexTurns: [failed] },
+      result({ result: '{"error":{"message":"The requested model is not supported.","code":"model_not_supported"}}' }),
+      failed,
+    );
+
+    expect(decision).toEqual({ kind: "terminal_model_not_supported" });
+  });
+});

@@ -749,6 +749,8 @@ export interface CodexAdapterBrowserMessageDeps {
     interrupted?: boolean,
   ) => Promise<void> | void;
   requestCodexProviderRecovery?: (session: CodexBrowserMessageSessionLike, reason: string) => boolean;
+  /** Switch the session to Standard speed (no service tier) for this and later turns. */
+  turnOffCodexServiceTier?: (session: CodexBrowserMessageSessionLike) => void;
   broadcastBoardParticipantRefresh?: (session: CodexBrowserMessageSessionLike) => void;
   syncSideChatParent?: (session: CodexBrowserMessageSessionLike) => void;
 }
@@ -1412,10 +1414,12 @@ export async function handleCodexAdapterBrowserMessage(
     let recoveryRequested = false;
     if (providerRecovery.kind === "recover") {
       recoveryRequested =
-        deps.requestCodexProviderRecovery?.(
-          session,
-          `provider_result:${providerRecovery.family}:attempt_${providerRecovery.attempt}`,
-        ) ?? false;
+        providerRecovery.family === "codex_service_tier_rejected"
+          ? turnOffRejectedCodexServiceTier(session, retryTurn !== null, deps)
+          : (deps.requestCodexProviderRecovery?.(
+              session,
+              `provider_result:${providerRecovery.family}:attempt_${providerRecovery.attempt}`,
+            ) ?? false);
       if (recoveryRequested && retryTurn) {
         const retryState = setCodexProviderRetryState(
           session,
@@ -1493,7 +1497,8 @@ export async function handleCodexAdapterBrowserMessage(
     if (maybeAutoPause instanceof Promise) {
       await maybeAutoPause;
     }
-    if (providerRecovery.kind === "recover") {
+    // The rejected-Fast retry needs no relaunch: it is queued and dispatched below.
+    if (providerRecovery.kind === "recover" && providerRecovery.family !== "codex_service_tier_rejected") {
       if (!recoveryRequested) {
         deps.broadcastToBrowsers(session, {
           type: "error",
@@ -1529,6 +1534,26 @@ export async function handleCodexAdapterBrowserMessage(
       updateActiveTurnRouteFromLeaderAssistant(session, activeRouteFromAssistant, deps);
     }
   }
+}
+
+/**
+ * Turn Fast off after the provider rejected it, and tell the user why. Returns whether the
+ * failed turn will be re-run (it is already queued when `retrying`).
+ */
+function turnOffRejectedCodexServiceTier(
+  session: CodexBrowserMessageSessionLike,
+  retrying: boolean,
+  deps: Pick<CodexAdapterBrowserMessageDeps, "turnOffCodexServiceTier" | "broadcastToBrowsers">,
+): boolean {
+  if (!deps.turnOffCodexServiceTier) return false;
+  deps.turnOffCodexServiceTier(session);
+  deps.broadcastToBrowsers(session, {
+    type: "error",
+    message:
+      "This session's model provider doesn't support Fast, so Takode switched the session to Standard speed" +
+      (retrying ? " and is re-running your last message." : ". Send your last message again to retry it."),
+  });
+  return retrying;
 }
 
 export function flushQueuedMessagesToCodexAdapter(

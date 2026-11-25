@@ -51,7 +51,8 @@ export function normalizePersistedCodexTurn(turn: any, now = Date.now()): any {
   const explicitProviderRetry =
     cleanTrackedRedispatch &&
     (normalized.providerRecoveryFamily === "model_backend_stream_error" ||
-      normalized.providerRecoveryFamily === "copilot_auth_refresh_invalidated") &&
+      normalized.providerRecoveryFamily === "copilot_auth_refresh_invalidated" ||
+      normalized.providerRecoveryFamily === "codex_service_tier_rejected") &&
     Number.isInteger(normalized.providerRecoveryAttempts) &&
     normalized.providerRecoveryAttempts > 0 &&
     normalized.dispatchCount === normalized.providerRecoveryAttempts;

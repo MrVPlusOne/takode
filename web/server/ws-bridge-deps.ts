@@ -1309,6 +1309,8 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
         { delayMs: CODEX_OUTAGE_RECOVERY_RETRY_INTERVAL_MS, allowAttached: true },
       );
     },
+    turnOffCodexServiceTier: (targetSession: unknown) =>
+      handleCodexSetServiceTierController(targetSession as Session, null, host.getBrowserRoutingDeps()),
     broadcastBoardParticipantRefresh: (targetSession: unknown) =>
       host.scheduleBoardParticipantRefresh?.((targetSession as Session).id),
     syncSideChatParent: (targetSession: unknown) => host.syncSideChatRecordForChild?.(targetSession as Session),

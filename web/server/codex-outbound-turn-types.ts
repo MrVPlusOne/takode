@@ -16,7 +16,14 @@ export type CodexResultErrorFamily =
   | "copilot_auth_refresh_invalidated"
   | "model_not_supported";
 export type CodexProviderFailureContextFamily = "copilot_auth_refresh_invalidated";
-export type CodexProviderRecoveryFamily = "model_backend_stream_error" | CodexProviderFailureContextFamily;
+/**
+ * Why Takode is re-running a failed Codex turn. `codex_service_tier_rejected`: the provider
+ * refused the session's service tier (Fast), so Takode switched the session to Standard first.
+ */
+export type CodexProviderRecoveryFamily =
+  | "model_backend_stream_error"
+  | "codex_service_tier_rejected"
+  | CodexProviderFailureContextFamily;
 export type CodexOutageRecoveryFamily = "process_transport" | "model_backend_stream_error";
 
 export type CodexTurnRecoveryStatus = "recovering" | "continuation_pending" | "continuation_active" | "action_required";
