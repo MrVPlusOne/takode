@@ -26,9 +26,9 @@ import { ArtifactConversation, ArtifactSideChatButton } from "./ArtifactConversa
 /**
  * One artifact shown large, in the Library or in a leader's side column: its newest version (or the
  * one linked or stepped to), each version's date, a star, renaming, its short ID with Copy link (for
- * mentioning it to a leader), its topic, and a link to the message the version came from. A leader's
- * artifact has a side chat with that leader about it (`ArtifactConversation`), opened from its
- * button or by commenting on its text.
+ * mentioning it to a leader), its topic, and a link to the message the version came from. It has a
+ * side chat with the session the version came from (`ArtifactConversation`), opened from its button
+ * or by commenting on its text.
  */
 export function ArtifactViewer({
   id,

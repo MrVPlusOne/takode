@@ -5,12 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Quest titles name where a thread started from; none are needed here.
 vi.mock("../../api.js", () => ({ api: { getQuestTitles: async () => ({ quests: [], missingQuestIds: [] }) } }));
-// Whether the session that showed the artifact is a leader (only leaders have threads).
-const leader = vi.hoisted(() => ({ value: true }));
-vi.mock("../../utils/top-bar-slots.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../utils/top-bar-slots.js")>()),
-  useLeaderNavigation: () => leader.value,
-}));
 vi.mock("../../ws.js", () => ({ holdSessionConnection: () => () => {}, sendToSession: () => true }));
 // A selection on the artifact's text, as the selection hook reports it.
 const selected = vi.hoisted(() => ({ text: "" }));
@@ -44,6 +38,9 @@ vi.mock("../Composer.js", () => ({
     </div>
   ),
 }));
+vi.mock("../side-column/SideSession.js", () => ({
+  SideSession: ({ sessionId }: { sessionId: string }) => <div data-testid="side-session" data-session-id={sessionId} />,
+}));
 vi.mock("../side-column/SideConversation.js", () => ({
   SideConversation: ({ threadKey }: { threadKey: string }) => (
     <div data-testid="side-conversation" data-thread-key={threadKey} />
@@ -53,12 +50,14 @@ vi.mock("../side-column/SideConversation.js", () => ({
 import type { ArtifactDetail } from "../../../shared/artifact-library.js";
 import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 import { useStore } from "../../store.js";
+import type { SdkSessionInfo } from "../../types.js";
 import { ArtifactViewer } from "./ArtifactViewer.js";
 
 /**
  * An artifact's side chat in its own views (the Library, the side column, its own window): a
- * button opens it, the first comment on its text opens it too, and the thread with the leader that
- * showed it is created only by the first message sent there.
+ * button opens it, the first comment on its text opens it too. With the leader the version came
+ * from it is a thread created only by the first message sent there; with a worker it is the
+ * worker's own conversation; a session that is archived takes no comments.
  */
 
 const NOW = Date.now();
@@ -79,11 +78,17 @@ const DETAIL: ArtifactDetail = {
   versions: [{ n: 1, at: NOW, bytes: 10, kept: true, source: SOURCE }],
 };
 
+/** Lists the session the artifact came from, as the session list reports it. */
+function listSource(fields: Partial<SdkSessionInfo>) {
+  const session = { sessionId: "leader-1", sessionNum: 7, name: "Eval worker", ...fields } as SdkSessionInfo;
+  useStore.getState().setSdkSessions([session]);
+}
+
 let threads: unknown[];
 let started: Array<Record<string, unknown>>;
 
 beforeEach(() => {
-  leader.value = true;
+  listSource({ isOrchestrator: true });
   selected.text = "";
   threads = [];
   started = [];
@@ -110,6 +115,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   useStore.getState().setAnnotationEditor(null);
+  useStore.getState().setSdkSessions([]);
 });
 
 describe("an artifact's side chat", () => {
@@ -187,10 +193,38 @@ describe("an artifact's side chat", () => {
     }
   });
 
-  it("has no side chat for an artifact shown by a session that is not a leader", async () => {
-    leader.value = false;
+  // A worker's report opened on its own (Lingxiao, Nov 25): it used to offer no Comment at all.
+  // Its comments go to the worker's own message box, as they do in the worker's conversation.
+  it("comments on a worker's artifact in the worker's own conversation", async () => {
+    listSource({ isOrchestrator: false });
+    selected.text = "must prove those";
+    render(<ArtifactViewer id="a1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Comment" }));
+    expect(await screen.findByTestId("side-session")).toHaveAttribute("data-session-id", "leader-1");
+    expect(screen.getByText("Chat with #7 Eval worker")).toBeInTheDocument();
+    await waitFor(() => expect(useStore.getState().annotationEditor).not.toBeNull());
+    expect(useStore.getState().annotationEditor).toMatchObject({
+      sessionId: "leader-1",
+      draftKey: "leader-1",
+      annotation: { selectedText: "must prove those" },
+    });
+  });
+
+  it("says why an artifact from an archived session takes no comments", async () => {
+    listSource({ isOrchestrator: true, archived: true });
+    selected.text = "must prove those";
+    render(<ArtifactViewer id="a1" />);
+    expect(await screen.findByTestId("artifact-comments-off")).toHaveTextContent("archived");
+    expect(screen.queryByRole("button", { name: "Comment" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask about this report" })).toBeNull();
+  });
+
+  // Before the session list arrives (an artifact window just opened) nothing is known yet, so
+  // there is no note that might be wrong a moment later.
+  it("shows no note before the session list has loaded", async () => {
+    useStore.getState().setSdkSessions([]);
     render(<ArtifactViewer id="a1" />);
     await screen.findByText("The model must prove those in Rocq.");
-    expect(screen.queryByRole("button", { name: "Ask about this report" })).toBeNull();
+    expect(screen.queryByTestId("artifact-comments-off")).toBeNull();
   });
 });

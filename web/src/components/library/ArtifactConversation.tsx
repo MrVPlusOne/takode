@@ -7,9 +7,8 @@ import { useTextSelection } from "../../hooks/useTextSelection.js";
 import { useStore } from "../../store.js";
 import { rememberThreads, useArtifactThread } from "../../utils/leader-topics.js";
 import { setRememberedFolded, useRememberedFold } from "../../utils/remembered-folds.js";
-import { useLeaderNavigation } from "../../utils/top-bar-slots.js";
 import { holdSessionConnection } from "../../ws.js";
-import type { AnnotationEditorState } from "../../types.js";
+import type { AnnotationEditorState, SdkSessionInfo } from "../../types.js";
 import { AnnotationSourceMarkers } from "../AnnotationSourceMarkers.js";
 import { resolveAnnotationRange } from "../annotation-passages.js";
 import { artifactElement } from "../use-annotation-source-navigation.js";
@@ -19,6 +18,7 @@ import { ComposerTargetContext } from "../composer-target.js";
 import { SelectionContextMenu } from "../SelectionContextMenu.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
 import { SideConversation } from "../side-column/SideConversation.js";
+import { SideSession } from "../side-column/SideSession.js";
 import { LeaderName } from "../side-column/SideChatLeaders.js";
 import { ThreadOriginName } from "../side-column/thread-names.js";
 import { NewThreadIcon } from "./library-icons.js";
@@ -42,17 +42,30 @@ const PLACEMENT_CLASSES: Record<ChatPlacement, string> = {
 };
 
 /**
- * An artifact's side chat: a thread with the leader that showed it, about it, opened from the
- * artifact's view (its button, or the first comment on its text). Only a leader's artifacts have
- * one: the session the version appeared in must be a leader.
+ * An artifact's side chat, opened from the artifact's view (its button, or the first comment on its
+ * text), with the session the shown version came from, so comments reach the session that wrote it,
+ * as they do in that session's own conversation. With a leader it is a thread about the artifact;
+ * with any other session (a worker's report, say) it is that session's own conversation. A session
+ * that is archived, or not listed, takes no comments.
  */
 export function useArtifactSideChat(detail: ArtifactDetail, version: number) {
   const source = detail.versions.find((entry) => entry.n === version)?.source ?? detail.latest.source;
-  const leaderId = source.sessionId;
-  const available = useLeaderNavigation(leaderId);
+  const sessionId = source.sessionId;
+  const role = useStore((state) => sourceSessionRole(state.sdkSessions, sessionId));
+  const available = role === "leader" || role === "session";
   // Closed until asked for, then remembered per artifact, so reopening it shows the chat again.
   const [closed, toggle] = useRememberedFold(sideChatFoldId(detail.id), true);
-  return { leaderId, startedFrom: source.threadKey, available, open: available && !closed, toggle };
+  return { sessionId, role, startedFrom: source.threadKey, available, open: available && !closed, toggle };
+}
+
+/**
+ * Who the side chat is with: a live leader, another live session, or one that is gone (archived, or
+ * not among the listed sessions). Nothing is decided before the session list has loaded.
+ */
+function sourceSessionRole(sessions: SdkSessionInfo[], sessionId: string): "leader" | "session" | "gone" | "loading" {
+  const session = sessions.find((candidate) => candidate.sessionId === sessionId);
+  if (session && !session.archived) return session.isOrchestrator ? "leader" : "session";
+  return sessions.length > 0 ? "gone" : "loading";
 }
 
 function sideChatFoldId(artifactId: string): string {
@@ -81,10 +94,12 @@ export function ArtifactSideChatButton({ detail, version }: { detail: ArtifactDe
 
 /**
  * An artifact's text with its side chat. Selected text can be commented on; the comment names the
- * artifact, goes to the side chat's message box and opens the side chat. The chat is the artifact's
- * thread with its leader once a first message started it, and an empty new thread before (nothing
- * is created until then). It sits beside the artifact when both fit, else over the artifact's right
- * side, and under it on a phone or in a narrow column. `onChatWidth` hears the room the open chat
+ * artifact, goes to the side chat's message box and opens the side chat. With a leader, the chat is
+ * the artifact's thread with it once a first message started it, and an empty new thread before
+ * (nothing is created until then); with another session, it is that session's conversation. When
+ * the session is gone, a note says why the text takes no comments. The chat sits beside the
+ * artifact when both fit, else over the artifact's right side, and under it on a phone or in a
+ * narrow column. `onChatWidth` hears the room the open chat
  * takes beside the artifact, so the page can grow by that much instead of narrowing the artifact.
  */
 export function ArtifactConversation({
@@ -100,11 +115,13 @@ export function ArtifactConversation({
   onChatWidth?: (width: number) => void;
   children: ReactNode;
 }) {
-  const { leaderId, startedFrom, available, open, toggle } = useArtifactSideChat(detail, version);
-  const threadKey = useArtifactThread(leaderId, detail.id, available);
-  // The chat reads and sends over the leader's connection, whatever the main view (if any) shows.
-  useEffect(() => (available ? holdSessionConnection(leaderId) : undefined), [available, leaderId]);
-  const draftKey = sideComposerDraftKey(leaderId, threadKey ?? `artifact:${detail.id}`);
+  const { sessionId, role, startedFrom, available, open, toggle } = useArtifactSideChat(detail, version);
+  const leader = role === "leader";
+  const threadKey = useArtifactThread(sessionId, detail.id, leader);
+  // The chat reads and sends over its session's connection, whatever the main view (if any) shows.
+  useEffect(() => (available ? holdSessionConnection(sessionId) : undefined), [available, sessionId]);
+  // Another session's comments go to its own message box, as in its conversation.
+  const draftKey = leader ? sideComposerDraftKey(sessionId, threadKey ?? `artifact:${detail.id}`) : sessionId;
   // A comment started on the text opens the chat, where it is sent from. Its editor belongs to the
   // chat's message box, so it opens once that box is on screen.
   const [pendingEditor, setPendingEditor] = useState<AnnotationEditorState | null>(null);
@@ -145,18 +162,27 @@ export function ArtifactConversation({
 
   const text = available ? (
     <ComposerTargetContext.Provider value={draftKey}>
-      <SelectableArtifact artifact={artifact} sessionId={leaderId} onComment={comment}>
+      <SelectableArtifact artifact={artifact} sessionId={sessionId} onComment={comment}>
         {children}
       </SelectableArtifact>
     </ComposerTargetContext.Provider>
   ) : (
-    children
+    <>
+      {role === "gone" && (
+        <p className="pb-1 pt-2 text-[13px] text-cc-muted" data-testid="artifact-comments-off">
+          This {kind} can't take comments: the session it came from is archived.
+        </p>
+      )}
+      {children}
+    </>
   );
   const chat = open ? (
     <>
       <div className="flex min-h-9 shrink-0 items-center gap-2 border-b border-cc-border pl-4 pr-1 text-[13px] text-cc-muted">
         <NewThreadIcon className="h-3.5 w-3.5" />
-        <span className="flex-1">Side chat about this {kind}</span>
+        <span className="flex-1 truncate">
+          {leader ? `Side chat about this ${kind}` : <SessionChatName sessionId={sessionId} />}
+        </span>
         <button
           type="button"
           onClick={toggle}
@@ -169,11 +195,13 @@ export function ArtifactConversation({
       </div>
       <div className="min-h-0 flex-1">
         {pendingEditor && <OpenCommentEditor editor={pendingEditor} onOpened={() => setPendingEditor(null)} />}
-        {threadKey ? (
-          <SideConversation leaderId={leaderId} threadKey={threadKey} />
+        {!leader ? (
+          <SideSession sessionId={sessionId} />
+        ) : threadKey ? (
+          <SideConversation leaderId={sessionId} threadKey={threadKey} />
         ) : (
           <NewArtifactThread
-            leaderId={leaderId}
+            leaderId={sessionId}
             startedFrom={startedFrom}
             artifact={artifact}
             kind={kind}
@@ -229,6 +257,12 @@ function OpenCommentEditor({ editor, onOpened }: { editor: AnnotationEditorState
     onOpened();
   }, [editor, onOpened]);
   return null;
+}
+
+/** "Chat with #3483 Model-checker scale-up": the session a non-leader's side chat is. */
+function SessionChatName({ sessionId }: { sessionId: string }) {
+  const session = useStore((state) => state.sdkSessions.find((candidate) => candidate.sessionId === sessionId));
+  return <>Chat with {`#${session?.sessionNum ?? ""} ${session?.name ?? ""}`.trim()}</>;
 }
 
 function kindName(detail: ArtifactDetail): string {
