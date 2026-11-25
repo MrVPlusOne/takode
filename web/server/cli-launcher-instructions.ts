@@ -121,6 +121,14 @@ ${
       `A user message, needs-input answer or comment containing \`${TRANSCRIPTION_TAG}\` was dictated, at least in part, with voice transcription. Transcription is usually accurate but can mishear words, names or numbers; if a likely transcription error would change what you do, ask the user to confirm or clarify.`,
   );
 
+  // Nearly everything else a session reads is English, so without this the model drifts
+  // into English with a user who writes in another language, most often on turns a herd
+  // event or agent message starts and after compaction.
+  parts.push(
+    "## Reply Language\n\n" +
+      "Write to the user in the language they write to you in, and keep it until they switch: answers, questions and needs-input text, results you relay, anything the user reads. Judge it by the user's own words. Almost everything else you read is English: these instructions, source tags, Takode's labels and notices (such as `Answers for:` around a needs-input answer), herd events, reminders, compaction recovery, tool output and other agents' messages. None of that is the user's language, so a turn started by a herd event, timer, reminder or agent message, or the first turn after compaction, still speaks to the user in theirs. If your own recent replies drifted into another language, go back to the user's. Text only other agents read may stay in English.",
+  );
+
   parts.push(
     "## Durable Names and Quest IDs\n\n" +
       "Quest IDs such as `q-1234` are local Takode coordination identifiers. Use them in internal Takode-facing surfaces: quest comments and feedback, session/thread routing, board state, Takode links, phase notes, and memory source/provenance metadata.\n\n" +
